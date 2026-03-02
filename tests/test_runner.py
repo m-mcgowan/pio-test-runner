@@ -38,6 +38,7 @@ class TestCrashHandling:
         errored = [c for c in runner.test_suite.cases if c.status == MockTestStatus.ERRORED]
         assert len(errored) == 1
         assert "Crash" in errored[0].message
+        assert isinstance(errored[0].exception, RuntimeError)
 
     def test_crash_finishes_suite(self):
         runner = make_runner()
@@ -80,6 +81,7 @@ class TestLifecycle:
         errored = [c for c in runner.test_suite.cases if c.status == MockTestStatus.ERRORED]
         assert len(errored) == 1
         assert "hang" in errored[0].name
+        assert isinstance(errored[0].exception, RuntimeError)
 
     def test_teardown_no_hang_when_runner_finished(self):
         runner = make_runner()
@@ -108,6 +110,7 @@ class TestLifecycle:
         errored = [c for c in runner.test_suite.cases if c.status == MockTestStatus.ERRORED]
         assert len(errored) == 1
         assert "hang" in errored[0].name
+        assert isinstance(errored[0].exception, RuntimeError)
 
 
 class TestIntegration:
@@ -167,3 +170,4 @@ class TestIntegration:
         assert runner.test_suite._finished
         errored = [c for c in runner.test_suite.cases if c.status == MockTestStatus.ERRORED]
         assert len(errored) == 1
+        assert isinstance(errored[0].exception, RuntimeError)

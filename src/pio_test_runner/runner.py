@@ -429,6 +429,7 @@ class EmbeddedTestRunner(_BaseRunner):
                 status=TestStatus.ERRORED,
                 message=crash.reason,
                 stdout="\n".join(crash.lines),
+                exception=RuntimeError(crash.reason),
             ))
             self._finished_by_runner = True
             self.test_suite.on_finish()
@@ -482,4 +483,5 @@ class EmbeddedTestRunner(_BaseRunner):
                 name=f"{self.test_suite.env_name}:hang",
                 status=TestStatus.ERRORED,
                 message=crash.reason,
+                exception=RuntimeError(crash.reason),
             ))
