@@ -3,10 +3,10 @@
 Parses protocol sentinels from device serial output. The protocol
 supports test filtering and deep sleep orchestration:
 
-1. Device boots, prints ``READY``
+1. Device boots, prints ``PTR:READY``
 2. Host sends ``RUN_ALL`` or ``RUN: <filter>``
-3. Device runs tests, may print ``SLEEP: <ms>`` for deep sleep
-4. Device prints ``DONE`` when finished
+3. Device runs tests, may print ``PTR:SLEEP ms=<N>`` for deep sleep
+4. Device prints ``PTR:DONE`` when finished
 
 The handler is a pure receiver — it parses state but does not send.
 The test runner reads its state to decide when to send commands.
@@ -14,7 +14,8 @@ The test runner reads its state to decide when to send commands.
 
 import enum
 import logging
-import re
+
+from .protocol import parse_line, parse_payload
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +30,15 @@ class ProtocolState(enum.Enum):
     FINISHED = enum.auto()
 
 
-_SLEEP_RE = re.compile(r"SLEEP:\s*(\d+)")
-_TEST_START_RE = re.compile(r">>> TEST START(?:\s*\[.*?\])?:\s*(.+)/(.+)")
-
-
 class ReadyRunProtocol:
-    """Parses READY/RUN/DONE/SLEEP protocol from device output.
+    """Parses PTR:READY/DONE/SLEEP/TEST:START protocol from device output.
 
     State transitions::
 
-        WAITING_FOR_READY → READY (on "READY" line)
+        WAITING_FOR_READY → READY (on "PTR:READY" line)
         READY → RUNNING (on ``command_sent()`` call)
-        RUNNING → SLEEPING (on "SLEEP: <ms>" line)
-        RUNNING → FINISHED (on "DONE" line)
+        RUNNING → SLEEPING (on "PTR:SLEEP" line)
+        RUNNING → FINISHED (on "PTR:DONE" line)
         SLEEPING → WAITING_FOR_READY (on ``reset_for_wake()``)
     """
 
@@ -61,8 +58,10 @@ class ReadyRunProtocol:
         )
         line_stripped = line.strip()
 
+        parsed = parse_line(line_stripped)
+
         if self._state == ProtocolState.WAITING_FOR_READY:
-            if line_stripped == "READY":
+            if parsed and parsed.tag == "READY" and parsed.crc_valid is not False:
                 self._state = ProtocolState.READY
                 logger.info("Device ready")
             return
@@ -70,16 +69,27 @@ class ReadyRunProtocol:
         if self._state != ProtocolState.RUNNING:
             return
 
+        if not parsed:
+            return
+        if parsed.crc_valid is False:
+            logger.warning("CRC mismatch, ignoring: %s", parsed.raw)
+            return
+
         # Track test names for sleep attribution
-        match = _TEST_START_RE.search(line)
-        if match:
-            self._current_test_suite = match.group(1)
-            self._current_test_name = match.group(2)
+        if parsed.tag == "TEST:START":
+            payload = parse_payload(parsed.payload_str)
+            suite = payload.get("suite", "")
+            name = payload.get("name", "")
+            if suite and isinstance(suite, str):
+                self._current_test_suite = suite
+            if name and isinstance(name, str):
+                self._current_test_name = name
 
         # Check for sleep sentinel
-        match = _SLEEP_RE.search(line_stripped)
-        if match:
-            self._sleep_duration_ms = int(match.group(1))
+        elif parsed.tag == "SLEEP":
+            payload = parse_payload(parsed.payload_str)
+            ms_str = payload.get("ms", "0")
+            self._sleep_duration_ms = int(ms_str) if isinstance(ms_str, str) else 0
             self._sleeping_test_name = self._current_test_name
             self._state = ProtocolState.SLEEPING
             logger.info(
@@ -87,10 +97,9 @@ class ReadyRunProtocol:
                 self._sleep_duration_ms,
                 self._sleeping_test_name,
             )
-            return
 
         # Check for completion
-        if line_stripped == "DONE":
+        elif parsed.tag == "DONE":
             self._state = ProtocolState.FINISHED
             logger.info("Device reported DONE")
 
@@ -127,12 +136,12 @@ class ReadyRunProtocol:
 
     @property
     def current_test_suite(self) -> str:
-        """Current test suite name from >>> TEST START markers."""
+        """Current test suite name from PTR:TEST:START markers."""
         return self._current_test_suite
 
     @property
     def current_test_name(self) -> str:
-        """Current test name from >>> TEST START markers."""
+        """Current test name from PTR:TEST:START markers."""
         return self._current_test_name
 
     @property

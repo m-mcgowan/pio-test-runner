@@ -1,18 +1,11 @@
 #pragma once
 #include <Arduino.h>
+#include "pio_test_runner/protocol.h"
 
 /// @brief PlatformIO test runner protocol — firmware-side API.
 ///
-/// This header provides the wire protocol between firmware and the
-/// pio-test-runner Python host. Both live in this repo so they stay
-/// in sync. Include only the modules you need.
-///
-/// Modules:
-///   - Disconnect: planned serial disconnections (deep sleep, reset)
-///   - ReadyRun: bidirectional test orchestration (READY/RUN/DONE)
-///   - Sleep: deep sleep signalling (SLEEP:<ms>)
-///   - Memory: per-test heap markers ([MEM] Before/After)
-///   - TestStart: test name markers (>>> TEST START)
+/// All protocol lines use the PTR: prefix with CRC-8 checksum.
+/// See protocol.h for wire format details.
 ///
 /// @code
 /// #include <pio_test_runner/test_runner.h>
@@ -27,14 +20,12 @@ namespace pio_test_runner {
 /// Tell the host we're going away for @p duration_ms milliseconds.
 /// Call this BEFORE Serial.end() / deep sleep / reset.
 inline void request_disconnect(uint32_t duration_ms) {
-    Serial.printf("PTR:DISCONNECT:%lu\n", (unsigned long)duration_ms);
-    Serial.flush();
+    emit(Serial, "PTR:DISCONNECT ms=%lu", (unsigned long)duration_ms);
 }
 
 /// Tell the host we're back. Call this AFTER Serial.begin().
 inline void signal_reconnect() {
-    Serial.println("PTR:RECONNECT");
-    Serial.flush();
+    emit(Serial, "PTR:RECONNECT");
 }
 
 // =====================================================================
@@ -44,14 +35,12 @@ inline void signal_reconnect() {
 /// Signal that the device is ready to receive test commands.
 /// The host will respond with RUN_ALL or RUN:<filter>.
 inline void signal_ready() {
-    Serial.println("READY");
-    Serial.flush();
+    emit(Serial, "PTR:READY");
 }
 
 /// Signal that all tests have completed.
 inline void signal_done() {
-    Serial.println("DONE");
-    Serial.flush();
+    emit(Serial, "PTR:DONE");
 }
 
 /// Wait for a test command from the host.
@@ -85,8 +74,7 @@ inline String wait_for_command(uint32_t timeout_ms = 5000) {
 /// After calling this, the device should enter deep sleep. The host
 /// uses the sleeping test name to build a filter for the wake cycle.
 inline void signal_sleep(uint32_t duration_ms) {
-    Serial.printf("SLEEP: %lu\n", (unsigned long)duration_ms);
-    Serial.flush();
+    emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)duration_ms);
 }
 
 // =====================================================================
@@ -95,19 +83,18 @@ inline void signal_sleep(uint32_t duration_ms) {
 
 /// Print heap stats before a test (parsed by MemoryTracker receiver).
 inline void print_mem_before(size_t free_heap, size_t min_heap) {
-    Serial.printf("[MEM] Before: free=%zu, min=%zu\n", free_heap, min_heap);
+    emit(Serial, "PTR:MEM:BEFORE free=%zu min=%zu", free_heap, min_heap);
 }
 
 /// Print heap stats after a test (parsed by MemoryTracker receiver).
 inline void print_mem_after(size_t free_heap, int64_t delta, size_t min_heap) {
-    Serial.printf("[MEM] After: free=%zu (delta=%+lld), min=%zu\n",
-                  free_heap, (long long)delta, min_heap);
+    emit(Serial, "PTR:MEM:AFTER free=%zu delta=%+lld min=%zu",
+         free_heap, (long long)delta, min_heap);
 }
 
 /// Print a memory leak warning.
 inline void print_mem_warning(int64_t leaked_bytes) {
-    Serial.printf("[MEM] WARNING: Test leaked ~%lld bytes!\n",
-                  (long long)leaked_bytes);
+    emit(Serial, "PTR:MEM:WARN leaked=%lld", (long long)leaked_bytes);
 }
 
 // =====================================================================
@@ -116,13 +103,13 @@ inline void print_mem_warning(int64_t leaked_bytes) {
 
 /// Print a test start marker (parsed by TestTimingTracker receiver).
 inline void print_test_start(const char* suite, const char* name) {
-    Serial.printf("\n>>> TEST START: %s/%s\n", suite, name);
+    emit(Serial, "PTR:TEST:START suite=\"%s\" name=\"%s\"", suite, name);
 }
 
 /// Print a test start marker with timeout annotation.
 inline void print_test_start(const char* suite, const char* name, float timeout_s) {
-    Serial.printf("\n>>> TEST START [timeout=%.0fs]: %s/%s\n",
-                  timeout_s, suite, name);
+    emit(Serial, "PTR:TEST:START suite=\"%s\" name=\"%s\" timeout=%.0f",
+         suite, name, timeout_s);
 }
 
 }  // namespace pio_test_runner

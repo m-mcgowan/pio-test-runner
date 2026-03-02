@@ -4,8 +4,8 @@
  *        pio-test-runner protocol integration.
  *
  * Provides:
- *   - TestNameListener: doctest reporter that emits >>> TEST START
- *     and [MEM] markers (parsed by the Python host)
+ *   - PtrTestListener: doctest reporter that emits PTR:TEST:START
+ *     and PTR:MEM:* markers (parsed by the Python host)
  *   - READY/RUN/DONE protocol handshake with the host
  *   - Compile-time filter support via TEST_FILTER_* macros
  *   - Runtime filter override from the host runner
@@ -59,8 +59,8 @@
  * @brief Doctest reporter that prints test names and memory stats.
  *
  * Emits markers consumed by the pio-test-runner Python host:
- *   - ``>>> TEST START: suite/name`` — test timing (TestTimingTracker)
- *   - ``[MEM] Before/After`` — heap tracking (MemoryTracker)
+ *   - ``PTR:TEST:START suite=... name=...`` — test timing (TestTimingTracker)
+ *   - ``PTR:MEM:BEFORE/AFTER`` — heap tracking (MemoryTracker)
  */
 struct PtrTestListener : doctest::IReporter {
     size_t free_before_{0};
@@ -92,7 +92,6 @@ struct PtrTestListener : doctest::IReporter {
 #if defined(ESP_IDF_VERSION)
         pio_test_runner::print_mem_before(free_before_, min_before_);
 #endif
-        Serial.flush();
     }
 
     void test_case_end(const doctest::CurrentTestCaseStats& stats) override {
@@ -219,9 +218,28 @@ inline void run_tests() {
 
     context.applyCommandLine(0, nullptr);
 
-    // Protocol handshake: signal ready, wait for host command
-    pio_test_runner::signal_ready();
-    String command = pio_test_runner::wait_for_command(5000);
+    // Protocol handshake: repeat READY until host responds or timeout.
+    // Repeating ensures the host sees READY even if it opens the port
+    // after the first signal (e.g. reconnecting after deep sleep).
+    String command;
+    {
+        constexpr uint32_t TOTAL_TIMEOUT_MS = 5000;
+        constexpr uint32_t READY_INTERVAL_MS = 1000;
+        uint32_t deadline = millis() + TOTAL_TIMEOUT_MS;
+        uint32_t next_ready = 0;  // send immediately on first iteration
+        while (millis() < deadline) {
+            if (millis() >= next_ready) {
+                pio_test_runner::signal_ready();
+                next_ready = millis() + READY_INTERVAL_MS;
+            }
+            if (Serial.available()) {
+                command = Serial.readStringUntil('\n');
+                command.trim();
+                if (command.length() > 0) break;
+            }
+            delay(10);
+        }
+    }
     apply_runner_command(command);
 
     // Run tests

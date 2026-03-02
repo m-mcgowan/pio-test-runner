@@ -20,8 +20,13 @@ from conftest import (
     MockTestSuite,
 )
 
+from pio_test_runner.protocol import format_crc
 from pio_test_runner.ready_run_protocol import ProtocolState
 from pio_test_runner.runner import EmbeddedTestRunner
+
+
+def _crc(content: str) -> str:
+    return format_crc(content)
 
 
 def make_runner(**kwargs):
@@ -53,46 +58,46 @@ def feed_session(runner, lines):
 DOCTEST_SESSION_PASS = [
     "Board revision: 2",
     "Test storage initialized: /littlefs/test",
-    "READY",
+    _crc("PTR:READY"),
     # (runner sends RUN_ALL here — feed_session calls command_sent)
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START: GPS/Navigation rate test",
-    "[MEM] Before: free=200000, min=180000",
+    _crc('PTR:TEST:START suite="GPS" name="Navigation rate test"'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( nav_rate == 5 ) is correct!",
-    "[MEM] After: free=199500 (delta=-500), min=179000",
+    _crc("PTR:MEM:AFTER free=199500 delta=-500 min=179000"),
     "",
-    ">>> TEST START: GPS/Satellite count",
-    "[MEM] Before: free=199500, min=179000",
+    _crc('PTR:TEST:START suite="GPS" name="Satellite count"'),
+    _crc("PTR:MEM:BEFORE free=199500 min=179000"),
     "  CHECK( sat_count >= 4 ) is correct!",
-    "[MEM] After: free=199000 (delta=-500), min=178500",
+    _crc("PTR:MEM:AFTER free=199000 delta=-500 min=178500"),
     "[doctest] test cases:  2 |  2 passed | 0 failed |",
-    "DONE",
+    _crc("PTR:DONE"),
 ]
 
 # Session with a large memory leak
 DOCTEST_SESSION_LEAK = [
     "Board revision: 2",
-    "READY",
+    _crc("PTR:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START: Mem/leaky test",
-    "[MEM] Before: free=200000, min=180000",
+    _crc('PTR:TEST:START suite="Mem" name="leaky test"'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( true ) is correct!",
-    "[MEM] After: free=185000 (delta=-15000), min=175000",
-    "[MEM] WARNING: Test leaked ~15000 bytes!",
+    _crc("PTR:MEM:AFTER free=185000 delta=-15000 min=175000"),
+    _crc("PTR:MEM:WARN leaked=15000"),
     "[doctest] test cases:  1 |  1 passed | 0 failed |",
-    "DONE",
+    _crc("PTR:DONE"),
 ]
 
 # Session with a crash mid-test
 DOCTEST_SESSION_CRASH = [
     "Board revision: 2",
-    "READY",
+    _crc("PTR:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START: IMU/FIFO read",
-    "[MEM] Before: free=200000, min=180000",
+    _crc('PTR:TEST:START suite="IMU" name="FIFO read"'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
     "Guru Meditation Error: Core  0 panic'ed (StoreProhibited). Exception was unhandled.",
     "Core  0 register dump:",
     "PC      : 0x400d1234  PS      : 0x00060030",
@@ -102,44 +107,44 @@ DOCTEST_SESSION_CRASH = [
 # Session where test announces deep sleep
 DOCTEST_SESSION_SLEEP = [
     "Board revision: 2",
-    "READY",
+    _crc("PTR:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START: Orientation/alert across sleep",
-    "[MEM] Before: free=200000, min=180000",
+    _crc('PTR:TEST:START suite="Orientation" name="alert across sleep"'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( orientation == PORTRAIT ) is correct!",
-    "SLEEP: 15000",
+    _crc("PTR:SLEEP ms=15000"),
 ]
 
 # Session with timeout annotation on test
 DOCTEST_SESSION_TIMEOUT = [
     "Board revision: 2",
-    "READY",
+    _crc("PTR:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START [timeout=30s]: GPS/Cold start fix",
-    "[MEM] Before: free=200000, min=180000",
+    _crc('PTR:TEST:START suite="GPS" name="Cold start fix" timeout=30'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( fix_acquired ) is correct!",
-    "[MEM] After: free=199800 (delta=-200), min=179500",
+    _crc("PTR:MEM:AFTER free=199800 delta=-200 min=179500"),
     "[doctest] test cases:  1 |  1 passed | 0 failed |",
-    "DONE",
+    _crc("PTR:DONE"),
 ]
 
 # Session with disconnect protocol (PTR:DISCONNECT/RECONNECT)
 DOCTEST_SESSION_DISCONNECT = [
     "Board revision: 2",
-    "READY",
+    _crc("PTR:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    ">>> TEST START: Sleep/deep sleep wake",
-    "[MEM] Before: free=200000, min=180000",
-    "PTR:DISCONNECT:5000",
+    _crc('PTR:TEST:START suite="Sleep" name="deep sleep wake"'),
+    _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+    _crc("PTR:DISCONNECT ms=5000"),
     "garbage during deep sleep",
-    "PTR:RECONNECT",
+    _crc("PTR:RECONNECT"),
     "  CHECK( woke_correctly ) is correct!",
-    "[MEM] After: free=198000 (delta=-2000), min=178000",
+    _crc("PTR:MEM:AFTER free=198000 delta=-2000 min=178000"),
     "[doctest] test cases:  1 |  1 passed | 0 failed |",
-    "DONE",
+    _crc("PTR:DONE"),
 ]
 
 
@@ -151,10 +156,7 @@ class TestFullDoctestSession:
         runner = make_runner()
         feed_session(runner, DOCTEST_SESSION_PASS)
 
-        assert runner.test_suite._finished
-        # Note: doctest summary line finishes the suite before DONE is
-        # processed, so protocol stays at RUNNING. This is correct —
-        # in orchestrated mode, stage_testing() would see DONE too.
+        assert runner.protocol.state == ProtocolState.FINISHED
         assert runner.protocol.current_test_full == "GPS/Satellite count"
         assert len(runner.memory_tracker.leaks) == 0
 
@@ -163,7 +165,7 @@ class TestFullDoctestSession:
         runner = make_runner()
         feed_session(runner, DOCTEST_SESSION_LEAK)
 
-        assert runner.test_suite._finished
+        assert runner.protocol.state == ProtocolState.FINISHED
 
         leaks = runner.memory_tracker.leaks
         assert "Mem/leaky test" in leaks
@@ -188,7 +190,7 @@ class TestFullDoctestSession:
         assert "IMU/FIFO read" in errored[0].name
 
     def test_sleep_sentinel_sets_sleeping_state(self):
-        """SLEEP: sentinel should transition protocol to SLEEPING."""
+        """SLEEP sentinel should transition protocol to SLEEPING."""
         runner = make_runner()
         feed_session(runner, DOCTEST_SESSION_SLEEP)
 
@@ -201,17 +203,17 @@ class TestFullDoctestSession:
         runner = make_runner()
         feed_session(runner, DOCTEST_SESSION_TIMEOUT)
 
-        assert runner.test_suite._finished
+        assert runner.protocol.state == ProtocolState.FINISHED
         assert runner.protocol.current_test_full == "GPS/Cold start fix"
 
-    def test_disconnect_suppresses_output(self, capsys):
-        """PTR:DISCONNECT should suppress output until PTR:RECONNECT."""
+    def test_disconnect_detected(self):
+        """PTR:DISCONNECT/RECONNECT is tracked by the disconnect handler."""
         runner = make_runner()
         feed_session(runner, DOCTEST_SESSION_DISCONNECT)
 
-        assert runner.test_suite._finished
-        captured = capsys.readouterr()
-        assert "garbage during deep sleep" not in captured.out
+        assert runner.protocol.state == ProtocolState.FINISHED
+        # Disconnect handler saw the RECONNECT — no longer active
+        assert not runner.disconnect_handler.active
 
 
 class TestProtocolHandshake:
@@ -226,7 +228,7 @@ class TestProtocolHandshake:
             "rst:0x1 (POWERON),boot:0x2b (SPI_FAST_FLASH_BOOT)",
             "Board revision: 2",
             "Test storage initialized: /littlefs/test",
-            "READY",
+            _crc("PTR:READY"),
         ]
         for line in boot_lines:
             runner.on_testing_line_output(line + "\n")
@@ -243,9 +245,9 @@ class TestProtocolHandshake:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
+            _crc("PTR:READY"),
             "  CHECK( true ) is correct!",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         assert runner.protocol.state == ProtocolState.FINISHED
@@ -257,8 +259,8 @@ class TestProtocolHandshake:
         pre_ready = [
             "ESP-ROM:esp32s3-20210327",
             "configsip: 0, SPIWP:0xee",
-            "DONE",  # stale DONE from previous run — should be ignored
-            "SLEEP: 5000",  # stale — should be ignored
+            _crc("PTR:DONE"),   # stale DONE from previous run — should be ignored
+            _crc("PTR:SLEEP ms=5000"),  # stale — should be ignored
         ]
         for line in pre_ready:
             runner.on_testing_line_output(line + "\n")
@@ -274,13 +276,13 @@ class TestTimingIntegration:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/fast",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="fast"'),
             "  CHECK( true ) is correct!",
-            ">>> TEST START: Suite/second",
+            _crc('PTR:TEST:START suite="Suite" name="second"'),
             "  CHECK( true ) is correct!",
             "[doctest] test cases:  2 |  2 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         runner.timing_tracker.finalize()
@@ -292,16 +294,16 @@ class TestMemoryIntegration:
     """Test memory tracking through the runner pipeline."""
 
     def test_memory_markers_tracked(self):
-        """[MEM] markers feed into memory tracker via router."""
+        """PTR:MEM markers feed into memory tracker via router."""
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/test",
-            "[MEM] Before: free=200000, min=180000",
-            "[MEM] After: free=199000 (delta=-1000), min=179000",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="test"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            _crc("PTR:MEM:AFTER free=199000 delta=-1000 min=179000"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         # Test name should have been synced from protocol to memory tracker
@@ -312,16 +314,16 @@ class TestMemoryIntegration:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/clean",
-            "[MEM] Before: free=200000, min=180000",
-            "[MEM] After: free=199800 (delta=-200), min=179800",
-            ">>> TEST START: Suite/leaky",
-            "[MEM] Before: free=199800, min=179800",
-            "[MEM] After: free=187000 (delta=-12800), min=177000",
-            "[MEM] WARNING: Test leaked ~12800 bytes!",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="clean"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            _crc("PTR:MEM:AFTER free=199800 delta=-200 min=179800"),
+            _crc('PTR:TEST:START suite="Suite" name="leaky"'),
+            _crc("PTR:MEM:BEFORE free=199800 min=179800"),
+            _crc("PTR:MEM:AFTER free=187000 delta=-12800 min=177000"),
+            _crc("PTR:MEM:WARN leaked=12800"),
             "[doctest] test cases:  2 |  2 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         leaks = runner.memory_tracker.leaks
@@ -333,12 +335,12 @@ class TestMemoryIntegration:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/big_leak",
-            "[MEM] Before: free=200000, min=180000",
-            "[MEM] After: free=180000 (delta=-20000), min=170000",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="big_leak"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            _crc("PTR:MEM:AFTER free=180000 delta=-20000 min=170000"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         report = runner.memory_tracker.report()
@@ -350,15 +352,15 @@ class TestSleepOrchestration:
     """Test sleep detection through the runner pipeline."""
 
     def test_sleep_detected_with_test_name(self):
-        """SLEEP: sentinel captures duration and sleeping test name."""
+        """SLEEP sentinel captures duration and sleeping test name."""
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Orientation/sleep wake test",
-            "[MEM] Before: free=200000, min=180000",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
             "  CHECK( orientation == PORTRAIT ) is correct!",
-            "SLEEP: 15000",
+            _crc("PTR:SLEEP ms=15000"),
         ])
 
         assert runner.protocol.state == ProtocolState.SLEEPING
@@ -371,10 +373,10 @@ class TestSleepOrchestration:
 
         # First cycle: boot → ready → test → sleep
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Orientation/sleep wake test",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Orientation" name="sleep wake test"'),
             "  CHECK( orientation == PORTRAIT ) is correct!",
-            "SLEEP: 5000",
+            _crc("PTR:SLEEP ms=5000"),
         ])
 
         assert runner.protocol.state == ProtocolState.SLEEPING
@@ -384,11 +386,11 @@ class TestSleepOrchestration:
         assert runner.protocol.state == ProtocolState.WAITING_FOR_READY
 
         feed_session(runner, [
-            "READY",
+            _crc("PTR:READY"),
             "Runner filter applied: *sleep wake test*",
-            ">>> TEST START: Orientation/sleep wake test",
+            _crc('PTR:TEST:START suite="Orientation" name="sleep wake test"'),
             "  CHECK( wake_orientation == LANDSCAPE ) is correct!",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         assert runner.protocol.state == ProtocolState.FINISHED
@@ -402,9 +404,9 @@ class TestCrashIntegration:
         runner = make_runner()
 
         lines = [
-            "READY",
-            ">>> TEST START: IMU/FIFO watermark interrupt",
-            "[MEM] Before: free=200000, min=180000",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="IMU" name="FIFO watermark interrupt"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
             "Guru Meditation Error: Core  0 panic'ed (LoadProhibited).",
         ]
         feed_session(runner, lines)
@@ -422,8 +424,8 @@ class TestCrashIntegration:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Hang/infinite loop",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Hang" name="infinite loop"'),
             "Task watchdog got triggered.",
         ])
         for i in range(20):
@@ -448,7 +450,7 @@ class TestCrashIntegration:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
+            _crc("PTR:READY"),
             "Guru Meditation Error: Core  0 panic'ed (LoadProhibited).",
         ])
         for i in range(20):
@@ -469,13 +471,13 @@ class TestSummaryReporting:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/leaky",
-            "[MEM] Before: free=200000, min=180000",
-            "[MEM] After: free=185000 (delta=-15000), min=175000",
-            "[MEM] WARNING: Test leaked ~15000 bytes!",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="leaky"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            _crc("PTR:MEM:AFTER free=185000 delta=-15000 min=175000"),
+            _crc("PTR:MEM:WARN leaked=15000"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         runner._print_summary()
@@ -487,12 +489,12 @@ class TestSummaryReporting:
         runner = make_runner()
 
         feed_session(runner, [
-            "READY",
-            ">>> TEST START: Suite/clean",
-            "[MEM] Before: free=200000, min=180000",
-            "[MEM] After: free=199800 (delta=-200), min=179800",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="clean"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            _crc("PTR:MEM:AFTER free=199800 delta=-200 min=179800"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
-            "DONE",
+            _crc("PTR:DONE"),
         ])
 
         runner._print_summary()

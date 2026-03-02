@@ -44,9 +44,14 @@ _DOCTEST_FAIL_RE = re.compile(
     r"^(.+?:\d+):\s*FAILED:"
 )
 
-# Test case declaration from doctest subcase/test_case output
+# Test case declaration: "TEST CASE:  name" (with optional leading whitespace)
 _DOCTEST_TESTCASE_RE = re.compile(
-    r"^={2,}\s*TEST CASE:\s*(.+?)$"
+    r"^\s*TEST CASE:\s+(.+?)$"
+)
+
+# Success line: "path/file.cpp:123: SUCCESS: CHECK( ... ) is correct!"
+_DOCTEST_SUCCESS_RE = re.compile(
+    r"^.+?:\d+:\s*SUCCESS:"
 )
 
 # --- Unity patterns ---
@@ -85,6 +90,7 @@ class TestResultReceiver:
 
         # Doctest state
         self._current_test_name: str | None = None
+        self._current_test_passed: bool = False
         self._doctest_fail_source: str | None = None
         self._doctest_fail_lines: list[str] = []
         self._in_doctest_failure: bool = False
@@ -151,9 +157,14 @@ class TestResultReceiver:
         # Check for test case declaration
         tc_match = _DOCTEST_TESTCASE_RE.match(line)
         if tc_match:
-            self._finalize_doctest_failure()
+            self._finalize_doctest_case()
             self._current_test_name = tc_match.group(1).strip()
+            self._current_test_passed = False
             return
+
+        # Check for success assertion
+        if _DOCTEST_SUCCESS_RE.match(line):
+            self._current_test_passed = True
 
         # Check for failure
         fail_match = _DOCTEST_FAIL_RE.match(line)
@@ -170,16 +181,27 @@ class TestResultReceiver:
         # Check for summary
         summary_match = _DOCTEST_SUMMARY_RE.search(line)
         if summary_match:
-            self._finalize_doctest_failure()
+            self._finalize_doctest_case()
             total = int(summary_match.group(1))
             passed = int(summary_match.group(2))
-            # If we haven't collected individual results, synthesize from summary
+            # If no individual results, synthesize from summary
             if not self._results and total > 0 and passed == total:
                 self._results.append(TestResult(
                     name="all tests",
                     passed=True,
                 ))
             self._is_complete = True
+
+    def _finalize_doctest_case(self) -> None:
+        """Finalize the current test case (pass or fail)."""
+        self._finalize_doctest_failure()
+        if self._current_test_name and self._current_test_passed:
+            self._results.append(TestResult(
+                name=self._current_test_name,
+                passed=True,
+            ))
+        self._current_test_name = None
+        self._current_test_passed = False
 
     def _finalize_doctest_failure(self) -> None:
         """Finalize a pending doctest failure."""
@@ -193,6 +215,7 @@ class TestResultReceiver:
             message=message,
             source=self._doctest_fail_source,
         ))
+        self._current_test_passed = False  # failure recorded, don't also record pass
         self._in_doctest_failure = False
         self._doctest_fail_source = None
         self._doctest_fail_lines = []

@@ -43,7 +43,6 @@ from embedded_bridge.receivers import CrashDetector, MemoryTracker, Router
 
 from .disconnect import DisconnectHandler
 from .ready_run_protocol import ProtocolState, ReadyRunProtocol
-from .result_receiver import TestResultReceiver
 from .timing_tracker import TestTimingTracker
 
 logger = logging.getLogger(__name__)
@@ -82,7 +81,12 @@ def _secho(msg, **kwargs):
         print(msg)
 
 
-class EmbeddedTestRunner(TestRunnerBase):
+# Use DoctestTestRunner when available (provides doctest result parsing).
+# Fall back to TestRunnerBase when PIO isn't installed (tests).
+_BaseRunner = DoctestTestRunner if DoctestTestRunner is not None else TestRunnerBase
+
+
+class EmbeddedTestRunner(_BaseRunner):
     """PlatformIO test runner with crash detection and disconnect handling.
 
     Uses embedded-bridge receivers to monitor device output for crashes,
@@ -108,19 +112,17 @@ class EmbeddedTestRunner(TestRunnerBase):
     def __init__(self, test_suite, project_config, options=None):
         super().__init__(test_suite, project_config, options)
 
-        # Receivers
+        # Receivers — our value-add over PIO's built-in parsing
         self.crash_detector = CrashDetector()
         self.disconnect_handler = DisconnectHandler()
-        self.result_receiver = TestResultReceiver(framework="auto")
         self.protocol = ReadyRunProtocol()
         self.memory_tracker = MemoryTracker()
         self.timing_tracker = TestTimingTracker()
 
-        # Router feeds all receivers
+        # Router feeds all receivers (result parsing delegated to PIO)
         self.router = Router([
             (self.crash_detector, None),
             (self.disconnect_handler, None),
-            (self.result_receiver, None),
             (self.protocol, None),
             (self.memory_tracker, None),
             (self.timing_tracker, None),
@@ -135,6 +137,7 @@ class EmbeddedTestRunner(TestRunnerBase):
 
         # Serial connection (orchestrated mode only)
         self._ser = None
+        self._line_buf = ""  # partial line buffer for serial reads
 
     # ------------------------------------------------------------------
     # Configuration hooks (override in subclass)
@@ -164,11 +167,9 @@ class EmbeddedTestRunner(TestRunnerBase):
     def on_testing_line_output(self, line):
         """Process a line of test output (line callback mode).
 
-        Routes to all receivers, then handles state:
-        - Crash detected → report error, finish suite
-        - Disconnect active → suppress output
-        - Results available → forward to PIO test suite
-        - Completion detected → finish suite
+        PIO owns serial and handles echoing + result parsing.
+        We feed our receivers for crash detection, disconnect handling,
+        memory tracking, and timing.
         """
         if self._finished_by_runner:
             return
@@ -176,20 +177,6 @@ class EmbeddedTestRunner(TestRunnerBase):
         self.router.feed(line)
         self._sync_test_name()
         self._check_crash()
-        if self._finished_by_runner:
-            return
-
-        # Disconnect active → suppress output
-        if self.disconnect_handler.active:
-            return
-
-        self._forward_results()
-        self._check_completion()
-        if self._finished_by_runner:
-            return
-
-        # Echo line for user visibility
-        _echo(line, nl=False)
 
     # ------------------------------------------------------------------
     # Orchestrated mode (runner owns serial)
@@ -236,6 +223,7 @@ class EmbeddedTestRunner(TestRunnerBase):
     def _run_test_cycle(self, command, reset=True):
         """Run one test cycle: open serial, wait for READY, send command, process."""
         self.protocol.reset()
+        self._line_buf = ""
         last_activity = time.time()
         first_assertion_seen = False
 
@@ -293,34 +281,38 @@ class EmbeddedTestRunner(TestRunnerBase):
         self._close_serial()
 
     def _on_serial_data(self, data):
-        """Process raw bytes from serial into lines and feed receivers."""
-        text = data.decode("utf-8", errors="replace")
-        for line in text.splitlines():
+        """Process raw bytes from serial into complete lines and feed receivers.
+
+        Buffers partial lines across reads so protocol markers split across
+        two serial reads (e.g. "REA" + "DY\\n") are handled correctly.
+        """
+        text = self._line_buf + data.decode("utf-8", errors="replace")
+        # Split into complete lines, keeping any trailing partial in buffer
+        parts = text.split("\n")
+        self._line_buf = parts[-1]  # incomplete trailing fragment (or "")
+        for line in parts[:-1]:
+            line = line.rstrip("\r")
             if not line:
                 continue
+            # Our receivers process first (protocol, crash, memory, timing)
             self.router.feed(line)
             self._sync_test_name()
             self._check_crash()
             if self._finished_by_runner:
                 return
 
-            # Forward results and echo in orchestrated mode
-            self._forward_results()
-            self._check_completion()
+            # Suppress output during disconnect windows and pre-READY boot
+            if self.disconnect_handler.active:
+                continue
+            state = self.protocol.state
+            if state == ProtocolState.WAITING_FOR_READY and not self.options.verbose:
+                continue
 
-            # Let DoctestTestRunner parse results too (for PIO compatibility)
+            # Delegate result parsing + echo to PIO's base runner
             try:
-                if hasattr(super(), "on_testing_line_output"):
-                    super().on_testing_line_output(line + "\n")
+                super().on_testing_line_output(line + "\n")
             except Exception:
                 pass  # Parser errors are non-fatal
-
-            # Echo output
-            if self.protocol.state == ProtocolState.WAITING_FOR_READY:
-                if self.options.verbose:
-                    _echo(line)
-            elif self.protocol.state == ProtocolState.RUNNING:
-                _echo(line)
 
     def _handle_sleep_resume(self):
         """Wait for device to wake from deep sleep and resume testing."""
@@ -341,8 +333,8 @@ class EmbeddedTestRunner(TestRunnerBase):
         self.protocol.reset_for_wake()
         try:
             self._run_test_cycle(command=filter_cmd, reset=False)
-        except Exception:
-            if serial is not None and isinstance(Exception, serial.SerialException):
+        except Exception as exc:
+            if serial is not None and isinstance(exc, serial.SerialException):
                 _echo("[runner] Port not ready, waiting 5s more...")
                 time.sleep(5)
                 self._run_test_cycle(command=filter_cmd, reset=False)
@@ -384,16 +376,13 @@ class EmbeddedTestRunner(TestRunnerBase):
             baudrate=self.get_test_speed(),
             timeout=1,
         )
-        if reset:
+        if reset and not self.options.no_reset:
             self._ser.rts = self.options.monitor_rts
             self._ser.dtr = self.options.monitor_dtr
-        else:
-            # After deep sleep: don't assert DTR/RTS on port open.
-            # On ESP32-S3 USB-Serial/JTAG, asserting DTR triggers
-            # USB_UART_CHIP_RESET which wipes RTC FAST memory and
-            # prevents the wake stub from preserving state.
-            self._ser.rts = False
-            self._ser.dtr = False
+        # else: leave DTR/RTS at pyserial defaults (True/True).
+        # On macOS, the kernel asserts DTR when the fd opens.
+        # Explicitly setting False would create a high→low transition
+        # that triggers USB_UART_CHIP_RESET on ESP32-S3 USB-Serial/JTAG.
         self._ser.open()
 
         if reset and not self.options.no_reset:
@@ -441,22 +430,6 @@ class EmbeddedTestRunner(TestRunnerBase):
                 message=crash.reason,
                 stdout="\n".join(crash.lines),
             ))
-            self._finished_by_runner = True
-            self.test_suite.on_finish()
-
-    def _forward_results(self):
-        """Forward buffered test results to PIO."""
-        for result in self.result_receiver.drain_results():
-            status = TestStatus.PASSED if result.passed else TestStatus.FAILED
-            self.test_suite.add_case(TestCase(
-                name=result.name,
-                status=status,
-                message=result.message,
-            ))
-
-    def _check_completion(self):
-        """Check if test run is complete."""
-        if self.result_receiver.is_complete and not self._finished_by_runner:
             self._finished_by_runner = True
             self.test_suite.on_finish()
 

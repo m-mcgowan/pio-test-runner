@@ -5,20 +5,19 @@ disconnections (deep sleep, reset, peripheral reflash, etc.). The
 handler tracks state but does not block — the caller decides how to
 respond to disconnect windows.
 
-Wire format (firmware → host):
-    ``PTR:DISCONNECT:<duration_ms>`` — request disconnect
-    ``PTR:RECONNECT`` — signal reconnect
+Wire format (firmware → host)::
+
+    PTR:DISCONNECT ms=<duration_ms> *XX
+    PTR:RECONNECT *XX
 """
 
 import logging
-import re
 import time
 from typing import Callable
 
-logger = logging.getLogger(__name__)
+from .protocol import parse_line, parse_payload
 
-DISCONNECT_RE = re.compile(r"^PTR:DISCONNECT:(\d+)$")
-RECONNECT_RE = re.compile(r"^PTR:RECONNECT$")
+logger = logging.getLogger(__name__)
 
 
 class DisconnectHandler:
@@ -53,7 +52,7 @@ class DisconnectHandler:
     def feed(self, message: bytes | str) -> None:
         """Feed a message from the device.
 
-        Protocol messages (``PTR:DISCONNECT:...``, ``PTR:RECONNECT``)
+        Protocol messages (``PTR:DISCONNECT``, ``PTR:RECONNECT``)
         are consumed. All other messages are ignored.
 
         Args:
@@ -64,11 +63,15 @@ class DisconnectHandler:
             if isinstance(message, bytes)
             else message
         )
-        line = line.strip()
 
-        match = DISCONNECT_RE.match(line)
-        if match:
-            duration_ms = int(match.group(1))
+        parsed = parse_line(line.strip())
+        if not parsed or parsed.crc_valid is False:
+            return
+
+        if parsed.tag == "DISCONNECT":
+            payload = parse_payload(parsed.payload_str)
+            ms_str = payload.get("ms", "0")
+            duration_ms = int(ms_str) if isinstance(ms_str, str) else 0
             duration_s = duration_ms / 1000.0
             logger.info("Disconnect requested: %.1fs", duration_s)
             self._active = True
@@ -78,7 +81,7 @@ class DisconnectHandler:
                 self._on_disconnect(duration_s)
             return
 
-        if RECONNECT_RE.match(line):
+        if parsed.tag == "RECONNECT":
             if not self._active:
                 logger.debug("RECONNECT received without prior DISCONNECT — ignoring")
                 return

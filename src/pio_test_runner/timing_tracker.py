@@ -1,25 +1,23 @@
-"""Per-test duration tracking from ``>>> TEST START`` markers.
+"""Per-test duration tracking from ``PTR:TEST:START`` markers.
 
 Parses test start markers emitted by the test framework's listener
 and tracks wall-clock duration for each test case.
 """
 
 import logging
-import re
 import time
-from dataclasses import dataclass
 from typing import Callable
+
+from .protocol import parse_line, parse_payload
 
 logger = logging.getLogger(__name__)
 
-_TEST_START_RE = re.compile(r">>> TEST START(?:\s*\[.*?\])?:\s*(.+)/(.+)")
-
 
 class TestTimingTracker:
-    """Tracks per-test duration from ``>>> TEST START`` markers.
+    """Tracks per-test duration from ``PTR:TEST:START`` markers.
 
-    Each ``>>> TEST START: suite/name`` line starts a timer for that
-    test. The timer stops when the next test starts or when
+    Each ``PTR:TEST:START suite=... name=...`` line starts a timer for
+    that test. The timer stops when the next test starts or when
     ``finalize()`` is called.
 
     Args:
@@ -47,11 +45,15 @@ class TestTimingTracker:
             else message
         )
 
-        match = _TEST_START_RE.search(line)
-        if match:
-            self._finalize_current()
-            self._current_test = f"{match.group(1)}/{match.group(2)}"
-            self._test_start_time = self._clock()
+        parsed = parse_line(line)
+        if parsed and parsed.tag == "TEST:START" and parsed.crc_valid is not False:
+            payload = parse_payload(parsed.payload_str)
+            suite = payload.get("suite", "")
+            name = payload.get("name", "")
+            if suite and name and isinstance(suite, str) and isinstance(name, str):
+                self._finalize_current()
+                self._current_test = f"{suite}/{name}"
+                self._test_start_time = self._clock()
 
     def finalize(self) -> None:
         """Finalize the current test's duration (call at end of run)."""

@@ -1,0 +1,112 @@
+#pragma once
+
+/// @file protocol.h
+/// @brief Shared protocol primitives for pio-test-runner wire format.
+///
+/// All protocol lines use the format:
+///     PTR:<TAG>[:<SUBTAG>] [payload ...] *XX
+///
+/// Where *XX is a CRC-8/MAXIM checksum (2 hex chars) of everything
+/// before the " *XX" suffix. The CRC lets the host reject garbled
+/// lines from multithreaded serial output.
+///
+/// Payload is tag-specific. Common conventions (shared helpers available):
+///   - key=value pairs: free=200000 min=180000
+///   - bare flags: verbose
+///   - quoted values: name="deep sleep test"
+///
+/// Use emit() for atomic line output — formats into a stack buffer
+/// and writes in a single call to prevent interleaving.
+
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#ifdef ARDUINO
+#include <Arduino.h>
+#else
+// Minimal Print shim for native builds / tests
+#include <cstring>
+struct Print {
+    virtual size_t write(const uint8_t* buf, size_t len) = 0;
+    size_t write(const char* buf, size_t len) {
+        return write(reinterpret_cast<const uint8_t*>(buf), len);
+    }
+};
+#endif
+
+namespace pio_test_runner {
+
+/// Maximum protocol line length (before \n).
+/// Lines longer than this are truncated — keep payloads concise.
+static constexpr size_t MAX_LINE_LEN = 256;
+
+/// Protocol line prefix. All protocol lines start with this.
+static constexpr const char* PREFIX = "PTR:";
+
+// -----------------------------------------------------------------
+// CRC-8/MAXIM (polynomial 0x31, init 0x00)
+// -----------------------------------------------------------------
+
+/// Compute CRC-8/MAXIM over a byte buffer.
+inline uint8_t crc8(const uint8_t* data, size_t len) {
+    uint8_t crc = 0x00;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 0x80) {
+                crc = (crc << 1) ^ 0x31;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
+}
+
+/// Compute CRC-8/MAXIM over a null-terminated string.
+inline uint8_t crc8(const char* str) {
+    return crc8(reinterpret_cast<const uint8_t*>(str), strlen(str));
+}
+
+// -----------------------------------------------------------------
+// Atomic line emission
+// -----------------------------------------------------------------
+
+/// Emit a complete protocol line atomically.
+///
+/// Formats into a stack buffer, computes CRC-8, appends " *XX\n",
+/// and writes in a single out.write() call. This prevents
+/// interleaving with output from other threads/tasks.
+///
+/// @param out  Output stream (e.g. Serial)
+/// @param fmt  printf format string (should NOT include newline)
+/// @param ...  Format arguments
+///
+/// Example:
+///   emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)3000);
+///   // writes: "PTR:SLEEP ms=3000 *A7\n"
+inline void emit(Print& out, const char* fmt, ...) {
+    char buf[MAX_LINE_LEN + 8];  // room for " *XX\n\0"
+
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf, MAX_LINE_LEN, fmt, args);
+    va_end(args);
+
+    if (n < 0) return;
+    if (static_cast<size_t>(n) >= MAX_LINE_LEN) {
+        n = MAX_LINE_LEN - 1;  // truncated
+    }
+
+    // Compute CRC over the formatted content
+    uint8_t checksum = crc8(reinterpret_cast<const uint8_t*>(buf), n);
+
+    // Append " *XX\n"
+    n += snprintf(buf + n, 8, " *%02X\n", checksum);
+
+    // Single atomic write
+    out.write(reinterpret_cast<const uint8_t*>(buf), n);
+}
+
+}  // namespace pio_test_runner

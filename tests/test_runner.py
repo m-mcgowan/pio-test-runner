@@ -7,7 +7,13 @@ from conftest import (
     MockTestSuite,
 )
 
+from pio_test_runner.protocol import format_crc
+from pio_test_runner.ready_run_protocol import ProtocolState
 from pio_test_runner.runner import EmbeddedTestRunner
+
+
+def _crc(content: str) -> str:
+    return format_crc(content)
 
 
 def make_runner(**kwargs):
@@ -47,58 +53,19 @@ class TestCrashHandling:
 
 
 class TestDisconnectSuppression:
-    def test_output_suppressed_during_disconnect(self, capsys):
+    def test_disconnect_tracked(self):
         runner = make_runner()
-        runner.on_testing_line_output("PTR:DISCONNECT:5000\n")
-        runner.on_testing_line_output("output during disconnect\n")
-        runner.on_testing_line_output("more output\n")
+        runner.on_testing_line_output(_crc("PTR:DISCONNECT ms=5000") + "\n")
 
-        # These lines should have been suppressed (no echo)
-        captured = capsys.readouterr()
-        assert "output during disconnect" not in captured.out
+        assert runner.disconnect_handler.active
 
-    def test_output_resumes_after_reconnect(self, capsys):
+    def test_reconnect_clears_disconnect(self):
         runner = make_runner()
-        runner.on_testing_line_output("PTR:DISCONNECT:1000\n")
-        runner.on_testing_line_output("suppressed\n")
-        runner.on_testing_line_output("PTR:RECONNECT\n")
-        runner.on_testing_line_output("visible again\n")
+        runner.on_testing_line_output(_crc("PTR:DISCONNECT ms=1000") + "\n")
+        assert runner.disconnect_handler.active
 
-        captured = capsys.readouterr()
-        assert "suppressed" not in captured.out
-        assert "visible again" in captured.out
-
-
-class TestResultReporting:
-    def test_unity_pass_forwarded(self):
-        runner = make_runner()
-        runner.on_testing_line_output("test/main.c:10:test_hello:PASS\n")
-
-        passed = [c for c in runner.test_suite.cases if c.status == MockTestStatus.PASSED]
-        assert len(passed) == 1
-        assert passed[0].name == "test_hello"
-
-    def test_unity_fail_forwarded(self):
-        runner = make_runner()
-        runner.on_testing_line_output("test/main.c:10:test_math:FAIL: Expected 5 Was 3\n")
-
-        failed = [c for c in runner.test_suite.cases if c.status == MockTestStatus.FAILED]
-        assert len(failed) == 1
-        assert failed[0].name == "test_math"
-        assert "Expected 5 Was 3" in failed[0].message
-
-    def test_completion_finishes_suite(self):
-        runner = make_runner()
-        runner.on_testing_line_output("test/main.c:10:test_one:PASS\n")
-        runner.on_testing_line_output("1 Tests 0 Failures 0 Ignored\n")
-
-        assert runner.test_suite._finished
-
-    def test_doctest_summary_finishes_suite(self):
-        runner = make_runner()
-        runner.on_testing_line_output("[doctest] test cases:  1 |  1 passed | 0 failed |\n")
-
-        assert runner.test_suite._finished
+        runner.on_testing_line_output(_crc("PTR:RECONNECT") + "\n")
+        assert not runner.disconnect_handler.active
 
 
 class TestLifecycle:
@@ -116,9 +83,8 @@ class TestLifecycle:
 
     def test_teardown_no_hang_when_runner_finished(self):
         runner = make_runner()
-        # Simulate normal completion via result receiver
-        runner.on_testing_line_output("[doctest] test cases:  1 |  1 passed | 0 failed |\n")
-        assert runner._finished_by_runner
+        # Simulate orchestrated mode finishing normally
+        runner._finished_by_runner = True
 
         runner.crash_detector._last_feed_time = 0.0
         runner.crash_detector._silent_timeout = 0.001
@@ -145,47 +111,50 @@ class TestLifecycle:
 
 
 class TestIntegration:
-    def test_full_unity_session(self):
+    def test_receivers_process_full_session(self):
+        """All receivers correctly process a complete test session."""
         runner = make_runner()
 
         lines = [
-            "Booting...\n",
-            "WiFi connected\n",
-            "test/main.c:10:test_init:PASS\n",
-            "test/main.c:20:test_read:PASS\n",
-            "test/main.c:30:test_write:FAIL: timeout\n",
-            "-----------------------\n",
-            "3 Tests 1 Failures 0 Ignored\n",
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Suite" name="test1"'),
+            _crc("PTR:MEM:BEFORE free=200000 min=180000"),
+            "  CHECK( true ) is correct!",
+            _crc("PTR:MEM:AFTER free=199800 delta=-200 min=179800"),
+            _crc('PTR:TEST:START suite="Suite" name="test2"'),
+            _crc("PTR:MEM:BEFORE free=199800 min=179800"),
+            "  CHECK( true ) is correct!",
+            _crc("PTR:MEM:AFTER free=199600 delta=-200 min=179600"),
+            _crc("PTR:DONE"),
         ]
 
         for line in lines:
-            runner.on_testing_line_output(line)
+            runner.on_testing_line_output(line + "\n")
+            if runner.protocol.state == ProtocolState.READY:
+                runner.protocol.command_sent()
 
-        assert runner.test_suite._finished
-        assert len(runner.test_suite.cases) == 3
-        passed = [c for c in runner.test_suite.cases if c.status == MockTestStatus.PASSED]
-        failed = [c for c in runner.test_suite.cases if c.status == MockTestStatus.FAILED]
-        assert len(passed) == 2
-        assert len(failed) == 1
+        assert runner.protocol.state == ProtocolState.FINISHED
+        assert len(runner.memory_tracker.all_tests) == 2
 
-    def test_disconnect_mid_test(self):
+    def test_disconnect_tracked_during_session(self):
+        """Disconnect/reconnect events are tracked through the session."""
         runner = make_runner()
 
         lines = [
-            "test/main.c:10:test_init:PASS\n",
-            "PTR:DISCONNECT:5000\n",
-            "garbage during disconnect\n",
-            "PTR:RECONNECT\n",
-            "test/main.c:20:test_after_sleep:PASS\n",
-            "2 Tests 0 Failures 0 Ignored\n",
+            _crc("PTR:READY"),
+            _crc("PTR:DISCONNECT ms=5000"),
+            "garbage during disconnect",
+            _crc("PTR:RECONNECT"),
+            _crc("PTR:DONE"),
         ]
 
         for line in lines:
-            runner.on_testing_line_output(line)
+            runner.on_testing_line_output(line + "\n")
+            if runner.protocol.state == ProtocolState.READY:
+                runner.protocol.command_sent()
 
-        assert runner.test_suite._finished
-        passed = [c for c in runner.test_suite.cases if c.status == MockTestStatus.PASSED]
-        assert len(passed) == 2
+        assert runner.protocol.state == ProtocolState.FINISHED
+        assert not runner.disconnect_handler.active
 
     def test_crash_during_test(self):
         runner = make_runner()

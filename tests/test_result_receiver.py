@@ -16,7 +16,7 @@ class TestDoctestParsing:
 
     def test_failure_with_source(self):
         receiver = TestResultReceiver(framework="doctest")
-        receiver.feed("== TEST CASE: my test case")
+        receiver.feed("TEST CASE: my test case")
         receiver.feed("test/main.cpp:42: FAILED:")
         receiver.feed("  CHECK( x == 1 )")
         receiver.feed("with expansion:")
@@ -32,11 +32,11 @@ class TestDoctestParsing:
 
     def test_multiple_failures(self):
         receiver = TestResultReceiver(framework="doctest")
-        receiver.feed("== TEST CASE: first test")
+        receiver.feed("TEST CASE: first test")
         receiver.feed("test/a.cpp:10: FAILED:")
         receiver.feed("  CHECK( false )")
 
-        receiver.feed("== TEST CASE: second test")
+        receiver.feed("TEST CASE: second test")
         receiver.feed("test/b.cpp:20: FAILED:")
         receiver.feed("  CHECK( 0 )")
 
@@ -49,7 +49,7 @@ class TestDoctestParsing:
 
     def test_test_case_name_tracked(self):
         receiver = TestResultReceiver(framework="doctest")
-        receiver.feed("== TEST CASE: widget initialization")
+        receiver.feed("TEST CASE: widget initialization")
         receiver.feed("test/widget.cpp:5: FAILED:")
         receiver.feed("  assertion failed")
         receiver.feed("[doctest] test cases:  1 |  0 passed | 1 failed |")
@@ -156,7 +156,7 @@ class TestAutoDetection:
 
     def test_detects_doctest_from_test_case_line(self):
         receiver = TestResultReceiver(framework="auto")
-        receiver.feed("== TEST CASE: my test")
+        receiver.feed("TEST CASE: my test")
         receiver.feed("test/x.cpp:1: FAILED:")
         receiver.feed("  oops")
         receiver.feed("[doctest] test cases:  1 |  0 passed | 1 failed |")

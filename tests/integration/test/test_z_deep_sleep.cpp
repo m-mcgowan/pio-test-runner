@@ -7,8 +7,8 @@
  *   Phase 2 (wake):       verify wakeup cause is TIMER
  *
  * Protocol flow:
- *   1. Device runs phase 1, emits "SLEEP: 3000", enters deep sleep
- *   2. Python runner sees SLEEP, closes serial, waits ~8s (3s + 5s padding)
+ *   1. Device runs phase 1, emits "PTR:SLEEP ms=3000 *XX", enters deep sleep
+ *   2. Python runner sees PTR:SLEEP, closes serial, waits ~8s (3s + 5s padding)
  *   3. Device wakes from timer, reboots, prints READY
  *   4. Runner sends "RUN: *survives deep sleep*"
  *   5. Test re-runs — wakeup cause is TIMER → phase 2 passes → DONE

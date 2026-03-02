@@ -1,8 +1,8 @@
 /**
  * @file test_timing.cpp
- * @brief Tests that exercise the >>> TEST START timing pipeline.
+ * @brief Tests that exercise the PTR:TEST:START timing pipeline.
  *
- * PtrTestListener emits >>> TEST START markers that the Python
+ * PtrTestListener emits PTR:TEST:START markers that the Python
  * TestTimingTracker uses to measure per-test duration. The "slow test"
  * should appear in the slow tests report (>5s threshold).
  */

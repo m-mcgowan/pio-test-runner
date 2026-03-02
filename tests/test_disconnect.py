@@ -3,6 +3,11 @@
 from embedded_bridge.receivers.base import Receiver
 
 from pio_test_runner.disconnect import DisconnectHandler
+from pio_test_runner.protocol import format_crc
+
+
+def _crc(content: str) -> str:
+    return format_crc(content)
 
 
 class FakeClock:
@@ -19,14 +24,14 @@ class FakeClock:
 class TestProtocolParsing:
     def test_disconnect_message_parsed(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:5000")
+        handler.feed(_crc("PTR:DISCONNECT ms=5000"))
         assert handler.active is True
         assert handler.pending_duration == 5.0
 
     def test_reconnect_message_parsed(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:5000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=5000"))
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.active is False
 
     def test_non_protocol_message_ignored(self):
@@ -38,35 +43,35 @@ class TestProtocolParsing:
 
     def test_disconnect_duration_milliseconds_to_seconds(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:500")
+        handler.feed(_crc("PTR:DISCONNECT ms=500"))
         assert handler.pending_duration == 0.5
 
     def test_disconnect_zero_duration(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:0")
+        handler.feed(_crc("PTR:DISCONNECT ms=0"))
         assert handler.active is True
         assert handler.pending_duration == 0.0
 
     def test_bytes_input(self):
         handler = DisconnectHandler()
-        handler.feed(b"PTR:DISCONNECT:3000")
+        handler.feed(_crc("PTR:DISCONNECT ms=3000").encode())
         assert handler.active is True
         assert handler.pending_duration == 3.0
 
     def test_line_with_whitespace_stripped(self):
         handler = DisconnectHandler()
-        handler.feed("  PTR:DISCONNECT:1000  \n")
+        handler.feed(f"  {_crc('PTR:DISCONNECT ms=1000')}  \n")
         assert handler.active is True
 
-    def test_partial_match_not_parsed(self):
+    def test_invalid_crc_rejected(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:")
+        handler.feed("PTR:DISCONNECT ms=5000 *00")
         assert handler.active is False
 
-    def test_invalid_duration_not_parsed(self):
+    def test_no_crc_accepted(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:abc")
-        assert handler.active is False
+        handler.feed("PTR:DISCONNECT ms=5000")
+        assert handler.active is True
 
 
 class TestStateTransitions:
@@ -74,34 +79,33 @@ class TestStateTransitions:
         handler = DisconnectHandler()
         assert handler.active is False
 
-        handler.feed("PTR:DISCONNECT:2000")
+        handler.feed(_crc("PTR:DISCONNECT ms=2000"))
         assert handler.active is True
 
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.active is False
 
     def test_disconnect_count_increments(self):
         handler = DisconnectHandler()
         assert handler.disconnect_count == 0
 
-        handler.feed("PTR:DISCONNECT:1000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.disconnect_count == 1
 
-        handler.feed("PTR:DISCONNECT:2000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=2000"))
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.disconnect_count == 2
 
     def test_pending_duration_updates(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:1000")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
         assert handler.pending_duration == 1.0
 
-        handler.feed("PTR:RECONNECT")
-        # Duration preserved from last request
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.pending_duration == 1.0
 
-        handler.feed("PTR:DISCONNECT:5000")
+        handler.feed(_crc("PTR:DISCONNECT ms=5000"))
         assert handler.pending_duration == 5.0
 
 
@@ -109,14 +113,14 @@ class TestCallbacks:
     def test_on_disconnect_called(self):
         durations = []
         handler = DisconnectHandler(on_disconnect=durations.append)
-        handler.feed("PTR:DISCONNECT:3000")
+        handler.feed(_crc("PTR:DISCONNECT ms=3000"))
         assert durations == [3.0]
 
     def test_on_reconnect_called(self):
         reconnects = []
         handler = DisconnectHandler(on_reconnect=lambda: reconnects.append(True))
-        handler.feed("PTR:DISCONNECT:1000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
+        handler.feed(_crc("PTR:RECONNECT"))
         assert reconnects == [True]
 
     def test_on_disconnect_not_called_for_non_protocol(self):
@@ -128,7 +132,7 @@ class TestCallbacks:
     def test_on_reconnect_not_called_without_disconnect(self):
         reconnects = []
         handler = DisconnectHandler(on_reconnect=lambda: reconnects.append(True))
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:RECONNECT"))
         assert reconnects == []
 
     def test_multiple_cycle_callbacks(self):
@@ -139,10 +143,10 @@ class TestCallbacks:
             on_reconnect=lambda: reconnects.append(True),
         )
 
-        handler.feed("PTR:DISCONNECT:1000")
-        handler.feed("PTR:RECONNECT")
-        handler.feed("PTR:DISCONNECT:2000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
+        handler.feed(_crc("PTR:RECONNECT"))
+        handler.feed(_crc("PTR:DISCONNECT ms=2000"))
+        handler.feed(_crc("PTR:RECONNECT"))
 
         assert disconnects == [1.0, 2.0]
         assert reconnects == [True, True]
@@ -151,21 +155,21 @@ class TestCallbacks:
 class TestEdgeCases:
     def test_reconnect_without_disconnect_ignored(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.active is False
         assert handler.disconnect_count == 0
 
     def test_double_disconnect_overwrites(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:1000")
-        handler.feed("PTR:DISCONNECT:5000")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
+        handler.feed(_crc("PTR:DISCONNECT ms=5000"))
         assert handler.active is True
         assert handler.pending_duration == 5.0
 
     def test_reset_clears_state(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:1000")
-        handler.feed("PTR:RECONNECT")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
+        handler.feed(_crc("PTR:RECONNECT"))
         assert handler.disconnect_count == 1
 
         handler.reset()
@@ -175,7 +179,7 @@ class TestEdgeCases:
 
     def test_non_protocol_during_disconnect(self):
         handler = DisconnectHandler()
-        handler.feed("PTR:DISCONNECT:1000")
+        handler.feed(_crc("PTR:DISCONNECT ms=1000"))
         handler.feed("some output during disconnect")
         assert handler.active is True  # unchanged
 
