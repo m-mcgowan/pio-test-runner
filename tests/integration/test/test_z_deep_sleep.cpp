@@ -15,6 +15,15 @@
  *
  * USB-CDC note: The serial port disappears during deep sleep. The runner
  * reopens with dtr=False, rts=False to avoid USB_UART_CHIP_RESET.
+ *
+ * RESUME_AFTER flow: Multiple sleep tests exercise the runner's ability to
+ * resume remaining tests after a sleep/wake cycle:
+ *   1. RUN_ALL → "survives deep sleep" Phase 1 → SLEEP
+ *   2. Resume → Phase 2 passes → DONE
+ *   3. RESUME_AFTER: "survives deep sleep" → remaining tests run
+ *   4. "second sleep test" Phase 1 → SLEEP
+ *   5. Resume → Phase 2 passes → DONE
+ *   6. RESUME_AFTER: "second sleep test" → "post-sleep test" runs
  */
 
 #include <doctest.h>
@@ -44,6 +53,34 @@ TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
     // Phase 2: woke from timer
     Serial.printf("Phase 2: woke with cause=%d\n", (int)cause);
     CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
+}
+
+TEST_CASE("second sleep test" * doctest::timeout(30)) {
+    auto cause = esp_sleep_get_wakeup_cause();
+
+    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        // Phase 1: sleep for 2s
+        Serial.println("Second sleep: Phase 1 — entering deep sleep for 2s");
+        CHECK(true);
+
+        pio_test_runner::signal_sleep(2000);
+        Serial.flush();
+        delay(100);
+
+        esp_sleep_enable_timer_wakeup(2 * 1000000ULL);
+        esp_deep_sleep_start();
+    }
+
+    // Phase 2: verify wake
+    Serial.printf("Second sleep: Phase 2 — woke with cause=%d\n", (int)cause);
+    CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
+}
+
+TEST_CASE("runs after sleep tests" * doctest::timeout(10)) {
+    // This test verifies RESUME_AFTER correctly runs tests after sleep tests.
+    // If RESUME_AFTER is broken, this test will never execute.
+    Serial.println("Post-sleep test: running after all sleep tests");
+    CHECK(true);
 }
 
 }

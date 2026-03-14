@@ -241,9 +241,119 @@ monitor.sleep_duration  # expected duration, if reported by firmware
 See the embedded-bridge design doc for full details on detection
 methods (serial patterns, USB-CDC port disappearance, wake detection).
 
-### TestConfigGenerator
+### Test Filtering
 
-Generates C/C++ header files for compile-time test filtering.
+Tests can be filtered at two levels: **compile-time** (baked into the
+firmware binary) and **runtime** (sent by the host over serial). Both
+are optional and independent — but understanding their interaction is
+important, especially for sleep/wake tests.
+
+#### Compile-time filters (`test_runner_config.h`)
+
+A generated header defines macros that `doctest_runner.h` applies via
+`context.setOption()` before tests execute:
+
+```c
+#pragma once
+// Auto-generated — do not commit
+#define TEST_FILTER_SUITE "*GPS*"        // doctest -ts=
+#define TEST_FILTER_CASE  "*timeout*"    // doctest -tc=
+#define TEST_EXCLUDE_SUITE "*slow*"      // doctest -tse=
+#define TEST_EXCLUDE_CASE  "*flaky*"     // doctest -tce=
+#define TEST_VERBOSE 1                   // enable duration/success output
+```
+
+These map directly to doctest's command-line options:
+
+| Macro | doctest option | Effect |
+|-------|---------------|--------|
+| `TEST_FILTER_SUITE` | `-ts=<value>` | Only run suites matching pattern |
+| `TEST_FILTER_CASE` | `-tc=<value>` | Only run cases matching pattern |
+| `TEST_EXCLUDE_SUITE` | `-tse=<value>` | Skip suites matching pattern |
+| `TEST_EXCLUDE_CASE` | `-tce=<value>` | Skip cases matching pattern |
+| `TEST_VERBOSE` | `--success --duration` | Print all assertions |
+
+Patterns use doctest's wildcard syntax: `*` matches any sequence of
+characters. Patterns are case-sensitive.
+
+**Lifecycle**: Compile-time filters require a firmware rebuild to change.
+Projects typically have a script (e.g. `run_tests.py`) that generates
+the header and triggers a rebuild. **Clear the header after use** — a
+stale filter silently restricts all future test runs until someone
+notices tests are being skipped.
+
+A clean `test_runner_config.h` with no filters:
+
+```c
+#pragma once
+// Auto-generated — do not commit
+// No filter - run all tests
+```
+
+#### Runtime filters (`RUN:` command)
+
+After the device boots and sends `PTR:READY`, the host sends one of:
+
+- `RUN_ALL` — no additional filter (use compile-time filters only)
+- `RUN: <pattern>` — set doctest's `test-case` filter to `<pattern>`
+- `RESUME_AFTER: <test_name>` — skip all tests up to and including
+  the named test, then run the rest (see "Running remaining tests
+  after sleep" below)
+
+**Important**: The runtime `RUN:` command sets the **test-case** option
+(`-tc`), NOT the test-suite option. It does not clear or override any
+compile-time filters. Both are additive — a test must match both the
+compile-time suite filter AND the runtime case filter to execute.
+
+This means if `TEST_FILTER_SUITE` is set to `"*GPS*"` at compile time,
+sending `RUN: *sleep*` at runtime will only run tests that are in a
+GPS suite AND have "sleep" in their case name.
+
+#### Filter interaction during sleep/wake
+
+When a test calls `test_deep_sleep()`, the device reboots. On wake:
+
+1. Device runs `run_tests()` from scratch (full boot sequence)
+2. `apply_compile_time_filters()` runs again — same filters as before
+3. Device sends `PTR:READY`
+4. Host sends `RUN: *<sleeping_test_name>*` — targets just the
+   sleeping test's Phase 2
+5. `apply_runner_command()` sets `test-case` to the sleeping test name
+6. The sleeping test detects Phase 2 via `is_test_wake()` (RTC_NOINIT
+   marker) and runs its verification logic
+7. `PTR:DONE` sent after the test completes
+
+The compile-time suite filter persists across the sleep/wake boundary
+(it's compiled into the binary). The runtime filter is re-sent by the
+host after wake. No filter state needs to be persisted in RTC memory.
+
+#### Running remaining tests after sleep
+
+When a test enters deep sleep, `context.run()` is interrupted and any
+tests registered after the sleep test never execute. The host handles
+this automatically:
+
+1. **First cycle**: `RUN_ALL` — runs tests until one sleeps.
+2. **Sleep resume**: `RUN: *<sleeping_test>*` — runs Phase 2 only.
+3. **Remaining cycle**: `RESUME_AFTER: <sleeping_test>` — the device
+   does a listing-only doctest pass to discover test order, builds an
+   exclude for all tests up to and including the named test, then runs
+   only the remaining tests.
+4. **Repeat**: If another test sleeps during step 3, the loop
+   continues — resume it, then run another remaining cycle.
+
+The `RESUME_AFTER:` command is handled entirely on the device side.
+The device performs a `list-test-cases` dry run to get the ordered
+test list, then sets `test-case-exclude` for everything before the
+resume point. This avoids the host needing to track test names or
+build exclude patterns — it just sends the name of the last test
+that completed before the sleep.
+
+#### TestConfigGenerator (planned)
+
+A Python utility to generate `test_runner_config.h`. Currently
+specified but not implemented — projects use their own scripts
+(e.g. `run_tests.py` in the firmware project).
 
 ```python
 class TestConfigGenerator:
@@ -259,19 +369,6 @@ class TestConfigGenerator:
         """Return header file content with #define filter macros."""
         ...
 ```
-
-Generates `test_runner_config.h`:
-
-```c
-#pragma once
-// Auto-generated by pio-test-runner — do not edit
-#define TEST_FILTER_CASE "gps*"
-#define TEST_FILTER_SUITE_EXCLUDE "slow*"
-```
-
-The firmware's test main includes this header and applies the filters
-at runtime (doctest's `-tc`/`-ts` equivalent, Unity's filter functions,
-etc.).
 
 ---
 

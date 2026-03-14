@@ -34,6 +34,7 @@
  *   }
  *
  *   #define PTR_BOARD_INIT my_board_init
+ *   #define PTR_READY_TIMEOUT_MS 30000  // Optional: wait up to 30s for host
  *   #include <pio_test_runner/doctest_runner.h>
  *
  *   void setup() { DOCTEST_SETUP(); }
@@ -43,12 +44,16 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstring>
+#include <vector>
 #include <doctest.h>
 #include <Arduino.h>
 #include "pio_test_runner/test_runner.h"
 
 #if defined(ESP_IDF_VERSION)
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #endif
 
 // =========================================================================
@@ -116,76 +121,215 @@ REGISTER_LISTENER("ptr_test_listener", 1, PtrTestListener);
 
 namespace ptr_doctest {
 
-static doctest::Context context;
 static bool tests_complete = false;
 
 /**
- * @brief Apply compile-time filter macros to the doctest context.
- *
- * Define these macros before including this header (typically via
- * a generated test_runner_config.h):
- *   - TEST_FILTER_SUITE    — doctest -ts=<value>
- *   - TEST_FILTER_CASE     — doctest -tc=<value>
- *   - TEST_EXCLUDE_SUITE   — doctest -tse=<value>
- *   - TEST_EXCLUDE_CASE    — doctest -tce=<value>
- *   - TEST_VERBOSE         — enable success + duration reporting
+ * @brief Apply compile-time filter macros to a doctest context.
  */
-inline void apply_compile_time_filters() {
+inline void apply_compile_time_filters(doctest::Context& ctx) {
 #ifdef TEST_FILTER_SUITE
-    context.setOption("test-suite", TEST_FILTER_SUITE);
+    ctx.setOption("test-suite", TEST_FILTER_SUITE);
     Serial.printf("Filtering test suite: %s\n", TEST_FILTER_SUITE);
 #endif
 #ifdef TEST_FILTER_CASE
-    context.setOption("test-case", TEST_FILTER_CASE);
+    ctx.setOption("test-case", TEST_FILTER_CASE);
     Serial.printf("Filtering test case: %s\n", TEST_FILTER_CASE);
 #endif
 #ifdef TEST_EXCLUDE_SUITE
-    context.setOption("test-suite-exclude", TEST_EXCLUDE_SUITE);
+    ctx.setOption("test-suite-exclude", TEST_EXCLUDE_SUITE);
     Serial.printf("Excluding test suite: %s\n", TEST_EXCLUDE_SUITE);
 #endif
 #ifdef TEST_EXCLUDE_CASE
-    context.setOption("test-case-exclude", TEST_EXCLUDE_CASE);
+    ctx.setOption("test-case-exclude", TEST_EXCLUDE_CASE);
     Serial.printf("Excluding test case: %s\n", TEST_EXCLUDE_CASE);
 #endif
 #ifdef TEST_VERBOSE
-    context.setOption("success", true);
-    context.setOption("duration", true);
+    ctx.setOption("success", true);
+    ctx.setOption("duration", true);
 #endif
+}
+
+/**
+ * @brief Get registered test names in doctest execution order.
+ *
+ * Iterates doctest's internal test registry and sorts by file/line
+ * (matching doctest's default order_by="file" execution order).
+ */
+inline std::vector<const char*> get_test_names() {
+    // Collect pointers to sort — same approach doctest uses internally
+    std::vector<const doctest::detail::TestCase*> tests;
+    for (const auto& tc : doctest::detail::getRegisteredTests()) {
+        tests.push_back(&tc);
+    }
+    // Sort by file then line (matches doctest's fileOrderComparator)
+    std::sort(tests.begin(), tests.end(),
+        [](const doctest::detail::TestCase* a, const doctest::detail::TestCase* b) {
+            const int res = a->m_file.compare(b->m_file);
+            if (res != 0) return res < 0;
+            return a->m_line < b->m_line;
+        });
+    std::vector<const char*> names;
+    names.reserve(tests.size());
+    for (const auto* tc : tests) {
+        names.push_back(tc->m_name);
+    }
+    return names;
+}
+
+/**
+ * @brief List all registered tests and signal done without executing.
+ */
+inline void list_tests() {
+    auto names = get_test_names();
+    Serial.printf("PTR:LIST count=%u\n", (unsigned)names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+        Serial.printf("  [%u] %s\n", (unsigned)i, names[i]);
+    }
+}
+
+/**
+ * @brief Resume tests after the named test.
+ *
+ * Iterates the test registry to find test_name, then builds a
+ * test-case-exclude pattern for all tests up to and including it.
+ * The subsequent context.run() will only execute tests after the
+ * resume point.
+ *
+ * @param test_name  Exact name of the last completed test.
+ * @return true if the test was found and excludes were applied.
+ */
+inline bool apply_resume_after(doctest::Context& ctx, const char* test_name) {
+    auto names = get_test_names();
+    Serial.printf("RESUME_AFTER: \"%s\" (%u tests registered)\n",
+                  test_name, (unsigned)names.size());
+
+    String exclude;
+    bool found = false;
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (exclude.length() > 0) {
+            exclude += ",";
+        }
+        exclude += "*";
+        exclude += names[i];
+        exclude += "*";
+
+        if (strcmp(names[i], test_name) == 0) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        Serial.printf("WARNING: test \"%s\" not found — running all tests\n",
+                       test_name);
+        return false;
+    }
+
+    unsigned count = 1;
+    for (size_t i = 0; i < exclude.length(); ++i) {
+        if (exclude[i] == ',') count++;
+    }
+    Serial.printf("Excluding %u tests before resume point\n", count);
+    ctx.setOption("test-case-exclude", exclude.c_str());
+    return true;
 }
 
 /**
  * @brief Apply a runtime command from the host runner.
  *
- * Handles RUN_ALL, RUN:<filter>, and timeout (no runner present).
+ * @return true if tests should be executed, false if the command
+ *         was handled without needing a test run (e.g. LIST).
  */
-inline void apply_runner_command(const String& command) {
+inline bool apply_runner_command(doctest::Context& ctx, const String& command) {
     if (command.startsWith("RUN:")) {
         String filter = command.substring(4);
         filter.trim();
         if (filter.length() > 0) {
-            context.setOption("test-case", filter.c_str());
+            ctx.setOption("test-case", filter.c_str());
             Serial.printf("Runner filter applied: %s\n", filter.c_str());
         }
+        return true;
+    } else if (command.startsWith("RESUME_AFTER:")) {
+        String name = command.substring(13);
+        name.trim();
+        if (name.length() > 0) {
+            apply_resume_after(ctx, name.c_str());
+        }
+        return true;
+    } else if (command == "LIST") {
+        list_tests();
+        return false;
     } else if (command == "RUN_ALL") {
         Serial.println("Runner: RUN_ALL (no additional filter)");
+        return true;
     } else if (command.length() == 0) {
-        Serial.println("No runner detected (timeout) -- using compiled-in filters");
+        Serial.println("No runner detected (timeout) — using compiled-in filters");
+        return true;
     } else {
-        Serial.printf("Unknown runner command: %s -- using compiled-in filters\n",
+        Serial.printf("Unknown runner command: %s — using compiled-in filters\n",
                        command.c_str());
+        return true;
     }
+}
+
+/**
+ * @brief Wait for a host command via the READY/RUN protocol.
+ *
+ * Sends PTR:READY periodically until the host responds with a command
+ * or the timeout expires. Returns the received command (empty on timeout).
+ */
+inline String wait_for_command(uint32_t timeout_ms) {
+    constexpr uint32_t READY_INTERVAL_MS = 1000;
+    uint32_t deadline = millis() + timeout_ms;
+    uint32_t next_ready = 0;  // send immediately on first iteration
+    while (millis() < deadline) {
+        if (millis() >= next_ready) {
+            pio_test_runner::signal_ready();
+            next_ready = millis() + READY_INTERVAL_MS;
+        }
+        if (Serial.available()) {
+            String command = Serial.readStringUntil('\n');
+            command.trim();
+            if (command.length() > 0) return command;
+        }
+        delay(10);
+    }
+    return String();
+}
+
+/**
+ * @brief Execute one test cycle: apply command, run tests, signal done.
+ *
+ * Creates a fresh doctest::Context, applies compile-time and runtime
+ * filters, executes matching tests, and signals PTR:DONE.
+ */
+inline void run_cycle(const String& command) {
+    doctest::Context context;
+    context.setOption("success", true);
+    context.setOption("no-exitcode", true);
+    apply_compile_time_filters(context);
+    context.applyCommandLine(0, nullptr);
+
+    bool should_run = apply_runner_command(context, command);
+
+    if (should_run) {
+        try {
+            int result = context.run();
+            (void)result;
+        } catch (...) {
+            Serial.println("Exception caught during test execution");
+        }
+    }
+
+    pio_test_runner::signal_done();
 }
 
 /**
  * @brief Initialize and run doctest tests.
  *
- * Call from setup(). This function:
- *   1. Initializes serial
- *   2. Calls PTR_BOARD_INIT if defined (project-specific setup)
- *   3. Configures doctest context with filters
- *   4. Runs the READY/RUN/DONE protocol with the host
- *   5. Executes all matching tests
- *   6. Signals completion
+ * Call from setup(). Handles serial init, board init, and the first
+ * READY/RUN/DONE cycle. After completion, idle_loop() accepts
+ * additional commands for RESUME_AFTER cycles.
  *
  * @note Define PTR_BOARD_INIT as a function with signature
  *       ``bool init(Print& log)`` for project-specific initialization.
@@ -209,62 +353,45 @@ inline void run_tests() {
     }
 #endif
 
-    // PlatformIO required options
-    context.setOption("success", true);
-    context.setOption("no-exitcode", true);
+#ifdef PTR_READY_TIMEOUT_MS
+    constexpr uint32_t TIMEOUT_MS = PTR_READY_TIMEOUT_MS;
+#else
+    constexpr uint32_t TIMEOUT_MS = 5000;
+#endif
 
-    // Apply compile-time filters
-    apply_compile_time_filters();
-
-    context.applyCommandLine(0, nullptr);
-
-    // Protocol handshake: repeat READY until host responds or timeout.
-    // Repeating ensures the host sees READY even if it opens the port
-    // after the first signal (e.g. reconnecting after deep sleep).
-    String command;
-    {
-        constexpr uint32_t TOTAL_TIMEOUT_MS = 5000;
-        constexpr uint32_t READY_INTERVAL_MS = 1000;
-        uint32_t deadline = millis() + TOTAL_TIMEOUT_MS;
-        uint32_t next_ready = 0;  // send immediately on first iteration
-        while (millis() < deadline) {
-            if (millis() >= next_ready) {
-                pio_test_runner::signal_ready();
-                next_ready = millis() + READY_INTERVAL_MS;
-            }
-            if (Serial.available()) {
-                command = Serial.readStringUntil('\n');
-                command.trim();
-                if (command.length() > 0) break;
-            }
-            delay(10);
-        }
-    }
-    apply_runner_command(command);
-
-    // Run tests
-    try {
-        int result = context.run();
-        (void)result;
-    } catch (...) {
-        Serial.println("Exception caught during test execution");
-    }
-
-    pio_test_runner::signal_done();
+    String command = wait_for_command(TIMEOUT_MS);
+    run_cycle(command);
     tests_complete = true;
 }
 
 /**
  * @brief Idle loop after tests complete.
  *
- * Call from loop(). Prints "Tests complete" periodically so the
- * host knows the device is still alive.
+ * Call from loop(). After the initial cycle, enters a new READY
+ * handshake so the host can send follow-up commands (e.g.
+ * RESTART to reboot for RESUME_AFTER, LIST, etc.).
  */
 inline void idle_loop() {
-    if (tests_complete) {
+    if (!tests_complete) return;
+
+    // Accept follow-up commands
+    String command = wait_for_command(5000);
+    if (command.length() == 0) {
         Serial.println("Tests complete");
-        delay(1000);
+        return;
     }
+
+    if (command == "RESTART") {
+        Serial.println("[PTR] Restarting...");
+        Serial.flush();
+        delay(100);
+#if defined(ESP_IDF_VERSION)
+        esp_restart();
+#endif
+    }
+
+    // LIST or other non-run commands can be handled without restart
+    run_cycle(command);
 }
 
 }  // namespace ptr_doctest

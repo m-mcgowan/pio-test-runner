@@ -142,3 +142,70 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed("PTR:READY")  # no CRC
         assert p.state == ProtocolState.READY
+
+    def test_completed_tests_tracked(self):
+        p = ReadyRunProtocol()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_b"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_c"'))
+        assert p.completed_tests == ["test_a", "test_b", "test_c"]
+
+    def test_completed_tests_no_duplicates(self):
+        p = ReadyRunProtocol()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        assert p.completed_tests == ["test_a"]
+
+    def test_completed_tests_persist_across_reset(self):
+        """reset() preserves completed_tests for resume-after exclude."""
+        p = ReadyRunProtocol()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc("PTR:SLEEP ms=5000"))
+        p.reset()
+        assert p.completed_tests == ["test_a", "sleep_test"]
+
+    def test_reset_all_clears_completed_tests(self):
+        p = ReadyRunProtocol()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        p.reset_all()
+        assert p.completed_tests == []
+        assert p.state == ProtocolState.WAITING_FOR_READY
+
+    def test_completed_tests_across_sleep_wake_cycle(self):
+        """Full cycle: run → sleep → resume → remaining."""
+        p = ReadyRunProtocol()
+        # Cycle 1: run until sleep
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc("PTR:SLEEP ms=5000"))
+        assert p.completed_tests == ["test_a", "sleep_test"]
+
+        # Cycle 2: resume sleep test
+        p.reset_for_wake()
+        p.reset()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc("PTR:DONE"))
+        # sleep_test seen again but not duplicated
+        assert p.completed_tests == ["test_a", "sleep_test"]
+
+        # Cycle 3: remaining tests (would use EXCLUDE with completed list)
+        p.reset()
+        p.feed(_crc("PTR:READY"))
+        p.command_sent()
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_b"'))
+        p.feed(_crc('PTR:TEST:START suite="S" name="test_c"'))
+        p.feed(_crc("PTR:DONE"))
+        assert p.completed_tests == ["test_a", "sleep_test", "test_b", "test_c"]

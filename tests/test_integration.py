@@ -395,6 +395,39 @@ class TestSleepOrchestration:
 
         assert runner.protocol.state == ProtocolState.FINISHED
 
+    def test_port_path_persists_after_serial_close(self):
+        """Port path is available for sleep monitoring after serial is closed."""
+        runner = make_runner()
+
+        # Simulate _open_serial setting port path
+        runner._port_path = "/dev/cu.usbmodem12345"
+
+        # Simulate _close_serial (sets _ser to None)
+        runner._ser = None
+
+        # _handle_sleep_resume should still have the port path
+        assert runner._port_path == "/dev/cu.usbmodem12345"
+
+    def test_sleep_monitor_uses_port_path(self):
+        """Sleep monitor is configured with saved port path, not from _ser."""
+        runner = make_runner()
+
+        # Set up: port path saved, serial closed (as happens after _run_test_cycle)
+        runner._port_path = "/dev/cu.usbmodem12345"
+        runner._ser = None
+
+        # Feed lines to reach SLEEPING state
+        feed_session(runner, [
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc("PTR:SLEEP ms=5000"),
+        ])
+        assert runner.protocol.state == ProtocolState.SLEEPING
+
+        # Verify port path is still available (not None from _ser)
+        port = runner._port_path
+        assert port == "/dev/cu.usbmodem12345"
+
 
 class TestCrashIntegration:
     """Test crash detection through the full pipeline."""

@@ -26,6 +26,7 @@ Then set ``test_framework = custom`` in ``platformio.ini``.
 """
 
 import logging
+import os
 import time
 import traceback
 
@@ -40,6 +41,7 @@ except ImportError:
     serial = None
 
 from embedded_bridge.receivers import CrashDetector, MemoryTracker, Router
+from embedded_bridge.receivers import SleepWakeMonitor
 
 from .disconnect import DisconnectHandler
 from .ready_run_protocol import ProtocolState, ReadyRunProtocol
@@ -135,8 +137,12 @@ class EmbeddedTestRunner(_BaseRunner):
         # Track whether our runner explicitly finished the suite
         self._finished_by_runner = False
 
+        # Sleep/wake monitoring via port disappearance (USB-CDC)
+        self.sleep_monitor = SleepWakeMonitor()
+
         # Serial connection (orchestrated mode only)
         self._ser = None
+        self._port_path = None  # persists across serial open/close for sleep monitoring
         self._line_buf = ""  # partial line buffer for serial reads
 
     # ------------------------------------------------------------------
@@ -186,6 +192,11 @@ class EmbeddedTestRunner(_BaseRunner):
         """Override PIO's stage_testing to manage the full serial lifecycle.
 
         Only active when ``configure_orchestrated()`` returns True.
+
+        Handles deep sleep mid-test: when a test enters deep sleep, the
+        runner resumes it after wake, then sends RESUME_AFTER to run
+        remaining tests. The device handles the listing/exclude logic
+        internally. The loop continues until FINISHED (no more sleeps).
         """
         if not self.configure_orchestrated():
             return super().stage_testing()
@@ -197,10 +208,49 @@ class EmbeddedTestRunner(_BaseRunner):
         _echo("")
 
         try:
+            self.protocol.reset_all()
             self._run_test_cycle(command="RUN_ALL", reset=True)
 
-            if self.protocol.state == ProtocolState.SLEEPING:
+            # Loop until all tests complete. When a test enters deep sleep,
+            # the device reboots and context.run() is interrupted. We:
+            #   1. Resume the sleeping test (Phase 2)
+            #   2. Send RESUME_AFTER:<sleep_test> — device skips all tests
+            #      up to and including it, running only remaining tests
+            #   3. Repeat until FINISHED (no more sleeps)
+            MAX_SLEEP_RETRIES = 3  # prevent infinite loops from firmware bugs
+            sleep_retry_counts: dict[str, int] = {}
+            while self.protocol.state == ProtocolState.SLEEPING:
+                sleep_test = self.protocol.sleeping_test_name
+
+                # Guard against infinite sleep/resume loops (e.g. wake stub
+                # stack corrupting RTC_NOINIT markers so Phase 2 never runs)
+                retry_count = sleep_retry_counts.get(sleep_test, 0)
+                if retry_count >= MAX_SLEEP_RETRIES:
+                    _secho(
+                        f"[runner] ERROR: Test '{sleep_test}' entered sleep "
+                        f"{retry_count} times — skipping (possible RTC memory "
+                        f"corruption)", fg="red", err=True)
+                    err = RuntimeError(
+                        f"Infinite sleep loop detected after {retry_count} "
+                        f"retries — test always enters Phase 1 on resume")
+                    self._add_error_case(sleep_test, str(err), err)
+                    # Close serial and restart to recover
+                    self._close_serial()
+                    break
+                sleep_retry_counts[sleep_test] = retry_count + 1
+
                 self._handle_sleep_resume()
+
+                # After resume, run remaining tests starting after the
+                # sleep test. The device does a listing pass to discover
+                # test order and builds its own exclude list.
+                if self.protocol.state != ProtocolState.SLEEPING and sleep_test:
+                    _echo(f"[runner] Running remaining tests after: {sleep_test}")
+                    # Send RESTART to reboot the device — required so sleep
+                    # tests see a clean reset reason (not deep sleep wake).
+                    self._restart_device()
+                    self._run_test_cycle(
+                        command=f"RESUME_AFTER: {sleep_test}", reset=False)
 
         except Exception as exc:
             if serial is not None and isinstance(exc, serial.SerialException):
@@ -224,6 +274,10 @@ class EmbeddedTestRunner(_BaseRunner):
         """Run one test cycle: open serial, wait for READY, send command, process."""
         self.protocol.reset()
         self._line_buf = ""
+        self._finished_by_runner = False
+        # Allow PIO's test suite to accept new results — it may have been
+        # marked finished by a previous cycle's doctest summary line.
+        self.test_suite._finished = False
         last_activity = time.time()
         first_assertion_seen = False
 
@@ -274,7 +328,10 @@ class EmbeddedTestRunner(_BaseRunner):
                 break
             if self.crash_detector.triggered:
                 break
-            if self.test_suite.is_finished():
+            # Only let PIO's is_finished break us out during RUNNING —
+            # during WAITING_FOR_READY it may be stale from a previous cycle.
+            if (self.protocol.state == ProtocolState.RUNNING
+                    and self.test_suite.is_finished()):
                 self._finished_by_runner = True
                 break
 
@@ -315,18 +372,54 @@ class EmbeddedTestRunner(_BaseRunner):
                 pass  # Parser errors are non-fatal
 
     def _handle_sleep_resume(self):
-        """Wait for device to wake from deep sleep and resume testing."""
+        """Wait for device to wake from deep sleep and resume testing.
+
+        Uses SleepWakeMonitor to confirm sleep via USB-CDC port
+        disappearance, then polls for port reappearance to confirm wake.
+        The sleep timer starts when the port actually drops, not when the
+        firmware announces sleep.
+        """
         sleep_s = self.protocol.sleep_duration_ms / 1000
         padding = self.configure_sleep_padding()
-        total_wait = sleep_s + padding
+        port = self._port_path
 
-        _echo(
-            f"[runner] Device sleeping for {sleep_s:.0f}s, "
-            f"waiting {total_wait:.0f}s for wake..."
-        )
-        time.sleep(total_wait)
+        _echo(f"[runner] Device sleeping for {sleep_s:.0f}s...")
 
-        # Build filter for the sleeping test
+        # Close serial so the OS releases the port
+        self._close_serial()
+
+        if port:
+            # Configure monitor with the port path
+            self.sleep_monitor = SleepWakeMonitor(port_path=port)
+
+            # Wait for port to disappear (confirms sleep entry)
+            drop_deadline = time.monotonic() + 10
+            while time.monotonic() < drop_deadline:
+                self.sleep_monitor.check_port()
+                if self.sleep_monitor.state == "sleeping":
+                    _echo("[runner] Port dropped — sleep confirmed")
+                    break
+                time.sleep(0.1)
+            else:
+                _secho("[runner] WARNING: port did not disappear — "
+                       "device may not have entered sleep", fg="yellow", err=True)
+
+            # Wait for port to reappear (confirms wake)
+            wake_deadline = time.monotonic() + sleep_s + padding
+            while time.monotonic() < wake_deadline:
+                self.sleep_monitor.check_port()
+                if self.sleep_monitor.state == "waking":
+                    _echo("[runner] Port reappeared — device waking")
+                    break
+                time.sleep(0.2)
+            else:
+                _secho(f"[runner] WARNING: port did not reappear within "
+                       f"{sleep_s + padding:.0f}s", fg="yellow", err=True)
+        else:
+            # No port path available — fall back to blind wait
+            time.sleep(sleep_s + padding)
+
+        # Resume test via READY/RUN handshake
         filter_cmd = f"RUN: *{self.protocol.sleeping_test_name}*"
         _echo(f"[runner] Resuming with: {filter_cmd}")
 
@@ -370,6 +463,7 @@ class EmbeddedTestRunner(_BaseRunner):
         if serial is None:
             raise RuntimeError("pyserial not installed")
         port = self._resolve_port()
+        self._port_path = port
         self._ser = serial.serial_for_url(
             port,
             do_not_open=True,
@@ -393,6 +487,29 @@ class EmbeddedTestRunner(_BaseRunner):
             self._ser.setDTR(True)
             self._ser.setRTS(True)
             time.sleep(0.1)
+
+    def _restart_device(self):
+        """Send RESTART command and wait for device to reboot.
+
+        The device calls esp_restart() which triggers a software reset.
+        On ESP32-S3 USB-CDC, the port disappears and reappears very quickly
+        (much faster than deep sleep wake). We use a short wait to let the
+        reset complete rather than port monitoring, which often misses the
+        brief port cycle.
+        """
+        if not self._ser or not self._ser.is_open:
+            self._open_serial(reset=False)
+
+        _echo("[runner] Sending RESTART")
+        self._ser.write(b"RESTART\n")
+        self._ser.flush()
+        self._close_serial()
+
+        # Brief wait for esp_restart() to complete. Software reset on
+        # ESP32-S3 USB-CDC is fast (~1s) — port monitoring often misses
+        # the brief disconnect. The next _run_test_cycle will wait for
+        # PTR:READY which confirms the device has rebooted.
+        time.sleep(2)
 
     def _close_serial(self):
         """Close serial connection."""

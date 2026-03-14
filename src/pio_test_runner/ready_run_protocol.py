@@ -4,7 +4,7 @@ Parses protocol sentinels from device serial output. The protocol
 supports test filtering and deep sleep orchestration:
 
 1. Device boots, prints ``PTR:READY``
-2. Host sends ``RUN_ALL`` or ``RUN: <filter>``
+2. Host sends ``RUN_ALL``, ``RUN: <filter>``, or ``RESUME_AFTER: <name>``
 3. Device runs tests, may print ``PTR:SLEEP ms=<N>`` for deep sleep
 4. Device prints ``PTR:DONE`` when finished
 
@@ -48,6 +48,7 @@ class ReadyRunProtocol:
         self._current_test_suite: str = ""
         self._current_test_name: str = ""
         self._sleeping_test_name: str = ""
+        self._completed_tests: list[str] = []  # test names seen across all cycles
 
     def feed(self, message: bytes | str) -> None:
         """Feed a line of device output."""
@@ -75,7 +76,7 @@ class ReadyRunProtocol:
             logger.warning("CRC mismatch, ignoring: %s", parsed.raw)
             return
 
-        # Track test names for sleep attribution
+        # Track test names for sleep attribution and resume-after
         if parsed.tag == "TEST:START":
             payload = parse_payload(parsed.payload_str)
             suite = payload.get("suite", "")
@@ -84,6 +85,8 @@ class ReadyRunProtocol:
                 self._current_test_suite = suite
             if name and isinstance(name, str):
                 self._current_test_name = name
+                if name not in self._completed_tests:
+                    self._completed_tests.append(name)
 
         # Check for sleep sentinel
         elif parsed.tag == "SLEEP":
@@ -151,10 +154,24 @@ class ReadyRunProtocol:
             return f"{self._current_test_suite}/{self._current_test_name}"
         return ""
 
+    @property
+    def completed_tests(self) -> list[str]:
+        """Test names seen across all cycles (for resume-after exclude)."""
+        return list(self._completed_tests)
+
     def reset(self) -> None:
-        """Reset all state."""
+        """Reset all state for a fresh test cycle.
+
+        Preserves completed_tests across cycles so the runner can build
+        an EXCLUDE list for remaining-tests cycles after sleep resume.
+        """
         self._state = ProtocolState.WAITING_FOR_READY
         self._sleep_duration_ms = 0
         self._current_test_suite = ""
         self._current_test_name = ""
         self._sleeping_test_name = ""
+
+    def reset_all(self) -> None:
+        """Full reset including completed test history."""
+        self.reset()
+        self._completed_tests.clear()
