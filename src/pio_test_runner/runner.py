@@ -286,7 +286,7 @@ class EmbeddedTestRunner(_BaseRunner):
 
         # Main read loop
         ready_deadline = time.time() + 30  # 30s timeout for WAITING_FOR_READY
-        while self.protocol.state in (ProtocolState.WAITING_FOR_READY, ProtocolState.RUNNING):
+        while self.protocol.state in (ProtocolState.WAITING_FOR_READY, ProtocolState.READY, ProtocolState.RUNNING):
             try:
                 data = self._ser.read(self._ser.in_waiting or 1)
             except Exception:

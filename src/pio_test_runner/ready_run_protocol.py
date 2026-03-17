@@ -76,6 +76,14 @@ class ReadyRunProtocol:
             logger.warning("CRC mismatch, ignoring: %s", parsed.raw)
             return
 
+        # If device sends READY while we think we're RUNNING, it means
+        # our command was lost (e.g. stale byte corrupted CRC). Transition
+        # back to READY so the runner re-sends.
+        if parsed.tag == "READY" and not self._current_test_name:
+            self._state = ProtocolState.READY
+            logger.info("Device re-sent READY — command was lost, retrying")
+            return
+
         # Track test names for sleep attribution and resume-after
         if parsed.tag == "TEST:START":
             payload = parse_payload(parsed.payload_str)
