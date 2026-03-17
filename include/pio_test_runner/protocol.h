@@ -109,4 +109,66 @@ inline void emit(Print& out, const char* fmt, ...) {
     out.write(reinterpret_cast<const uint8_t*>(buf), n);
 }
 
+// -----------------------------------------------------------------
+// CRC validation (receive side)
+// -----------------------------------------------------------------
+
+/// Result of validating a received line with CRC.
+struct ValidatedLine {
+    const char* content;   ///< Pointer into buf (null-terminated command)
+    uint8_t content_len;   ///< Length of content (excluding CRC suffix)
+    bool valid;            ///< true if CRC matched
+};
+
+/// Validate CRC on a received line and strip the " *XX" suffix.
+///
+/// Expects format: ``COMMAND *XX`` where XX is CRC-8/MAXIM hex.
+/// Modifies buf in place (null-terminates the command portion).
+///
+/// @param buf   Mutable buffer containing the received line (trimmed, no newline)
+/// @param len   Length of buf
+/// @return ValidatedLine with valid=true if CRC matched, valid=false otherwise.
+///         On failure, content points to buf (original) for diagnostics.
+inline ValidatedLine validate_crc(char* buf, size_t len) {
+    ValidatedLine result = { buf, static_cast<uint8_t>(len), false };
+
+    // Need at least " *XX" (4 chars) plus 1 char of content
+    if (len < 5) return result;
+
+    // Find " *" suffix — must be at len-4
+    if (buf[len - 4] != ' ' || buf[len - 3] != '*') return result;
+
+    // Parse 2-digit hex CRC
+    char* end = nullptr;
+    unsigned long received = strtoul(&buf[len - 2], &end, 16);
+    if (end != &buf[len]) return result;
+
+    // Null-terminate the content (before " *XX")
+    size_t content_len = len - 4;
+    buf[content_len] = '\0';
+
+    // Compute and compare
+    uint8_t expected = crc8(reinterpret_cast<const uint8_t*>(buf), content_len);
+    result.content_len = static_cast<uint8_t>(content_len);
+    result.valid = (static_cast<uint8_t>(received) == expected);
+    return result;
+}
+
+/// Log a CRC validation failure via the protocol emit channel.
+///
+/// @param out  Output stream (e.g. Serial)
+/// @param raw  Original received bytes
+/// @param len  Length of raw
+inline void log_crc_failure(Print& out, const char* raw, size_t len) {
+    char hex[96];
+    int n = snprintf(hex, sizeof(hex), "[PTR] CRC fail (%zu bytes): ", len);
+    for (size_t i = 0; i < len && n < static_cast<int>(sizeof(hex)) - 4; i++) {
+        n += snprintf(hex + n, sizeof(hex) - n, "%02X ",
+                      static_cast<uint8_t>(raw[i]));
+    }
+    hex[n] = '\0';
+    out.write(reinterpret_cast<const uint8_t*>(hex), n);
+    out.write(reinterpret_cast<const uint8_t*>("\n"), 1);
+}
+
 }  // namespace pio_test_runner

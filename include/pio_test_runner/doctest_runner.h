@@ -275,8 +275,10 @@ inline bool apply_runner_command(doctest::Context& ctx, const String& command) {
 /**
  * @brief Wait for a host command via the READY/RUN protocol.
  *
- * Sends PTR:READY periodically until the host responds with a command
- * or the timeout expires. Returns the received command (empty on timeout).
+ * Sends PTR:READY periodically until the host responds with a CRC-valid
+ * command or the timeout expires. Returns the command (CRC stripped),
+ * or empty string on timeout. Discards any input that fails CRC
+ * validation (e.g. garbage from macOS DTR assertion on serial open).
  */
 inline String wait_for_command(uint32_t timeout_ms) {
     constexpr uint32_t READY_INTERVAL_MS = 1000;
@@ -288,9 +290,23 @@ inline String wait_for_command(uint32_t timeout_ms) {
             next_ready = millis() + READY_INTERVAL_MS;
         }
         if (Serial.available()) {
-            String command = Serial.readStringUntil('\n');
-            command.trim();
-            if (command.length() > 0) return command;
+            String raw = Serial.readStringUntil('\n');
+            raw.trim();
+            if (raw.length() > 0) {
+                // Validate CRC at the transport layer
+                char buf[pio_test_runner::MAX_LINE_LEN];
+                size_t len = raw.length();
+                if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+                memcpy(buf, raw.c_str(), len);
+                buf[len] = '\0';
+
+                auto result = pio_test_runner::validate_crc(buf, len);
+                if (result.valid) {
+                    return String(result.content);
+                }
+                // CRC failed — log and discard
+                pio_test_runner::log_crc_failure(Serial, raw.c_str(), raw.length());
+            }
         }
         delay(10);
     }
@@ -359,10 +375,6 @@ inline void run_tests() {
     constexpr uint32_t TIMEOUT_MS = 5000;
 #endif
 
-    // Drain any stale bytes from serial RX buffer. On macOS, opening the
-    // serial port asserts DTR which can inject garbage into USB-CDC RX.
-    while (Serial.available()) { Serial.read(); }
-
     String command = wait_for_command(TIMEOUT_MS);
     run_cycle(command);
     tests_complete = true;
@@ -377,9 +389,6 @@ inline void run_tests() {
  */
 inline void idle_loop() {
     if (!tests_complete) return;
-
-    // Drain stale serial bytes (see run_tests() comment for rationale)
-    while (Serial.available()) { Serial.read(); }
 
     // Accept follow-up commands
     String command = wait_for_command(5000);

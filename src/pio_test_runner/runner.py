@@ -44,6 +44,7 @@ from embedded_bridge.receivers import CrashDetector, MemoryTracker, Router
 from embedded_bridge.receivers import SleepWakeMonitor
 
 from .disconnect import DisconnectHandler
+from .protocol import format_crc
 from .ready_run_protocol import ProtocolState, ReadyRunProtocol
 from .timing_tracker import TestTimingTracker
 
@@ -284,6 +285,7 @@ class EmbeddedTestRunner(_BaseRunner):
         self._open_serial(reset=reset)
 
         # Main read loop
+        ready_deadline = time.time() + 30  # 30s timeout for WAITING_FOR_READY
         while self.protocol.state in (ProtocolState.WAITING_FOR_READY, ProtocolState.RUNNING):
             try:
                 data = self._ser.read(self._ser.in_waiting or 1)
@@ -302,7 +304,21 @@ class EmbeddedTestRunner(_BaseRunner):
                     self._send_command(command)
                     self.protocol.command_sent()
             else:
-                # Check for hang
+                # Check for hang during WAITING_FOR_READY
+                if self.protocol.state == ProtocolState.WAITING_FOR_READY:
+                    if time.time() > ready_deadline:
+                        _secho(
+                            "\nTIMEOUT: No PTR:READY received in 30s — aborting",
+                            fg="red", err=True,
+                        )
+                        self._add_error_case(
+                            "ready_timeout",
+                            "Device did not send PTR:READY within 30s",
+                            RuntimeError("PTR:READY timeout"),
+                        )
+                        break
+
+                # Check for hang during RUNNING
                 if first_assertion_seen:
                     elapsed = time.time() - last_activity
                     if elapsed > self.configure_hang_timeout():
@@ -479,6 +495,12 @@ class EmbeddedTestRunner(_BaseRunner):
         # that triggers USB_UART_CHIP_RESET on ESP32-S3 USB-Serial/JTAG.
         self._ser.open()
 
+        # On macOS, opening the serial fd asserts DTR which injects a
+        # garbage byte into the device's USB-CDC RX buffer. Send a bare
+        # newline to terminate any garbage — the device's readStringUntil()
+        # returns the garbage as a short line which fails CRC and is discarded.
+        self._ser.write(b"\n")
+
         if reset and not self.options.no_reset:
             self._ser.flushInput()
             self._ser.setDTR(False)
@@ -501,8 +523,7 @@ class EmbeddedTestRunner(_BaseRunner):
             self._open_serial(reset=False)
 
         _echo("[runner] Sending RESTART")
-        self._ser.write(b"RESTART\n")
-        self._ser.flush()
+        self._send_command("RESTART")
         self._close_serial()
 
         # Brief wait for esp_restart() to complete. Software reset on
@@ -523,7 +544,7 @@ class EmbeddedTestRunner(_BaseRunner):
     def _send_command(self, command):
         """Send a command string to the device."""
         if self._ser and self._ser.is_open:
-            self._ser.write(f"{command}\n".encode())
+            self._ser.write(f"{format_crc(command)}\n".encode())
             self._ser.flush()
             _echo(f"[runner] Sent: {command}")
 
