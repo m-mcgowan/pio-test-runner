@@ -189,6 +189,38 @@ class EmbeddedTestRunner(_BaseRunner):
     # Orchestrated mode (runner owns serial)
     # ------------------------------------------------------------------
 
+    def _build_initial_command(self):
+        """Build the initial RUN command from environment variables.
+
+        The test launch script (e.g. run_tests.sh) sets these env vars:
+          PTR_TEST_CASE=*pattern*       → test-case filter
+          PTR_TEST_SUITE=*pattern*      → test-suite filter
+          PTR_TEST_CASE_EXCLUDE=*pat*   → test-case-exclude
+          PTR_TEST_SUITE_EXCLUDE=*pat*  → test-suite-exclude
+
+        Returns "RUN_ALL" if no filters specified, otherwise
+        "RUN: --tc ... --ts ..." etc.
+        """
+        env_map = {
+            "PTR_TEST_CASE": "--tc",
+            "PTR_TEST_SUITE": "--ts",
+            "PTR_TEST_CASE_EXCLUDE": "--tce",
+            "PTR_TEST_SUITE_EXCLUDE": "--tse",
+        }
+
+        filters = []
+        for env_var, flag in env_map.items():
+            value = os.environ.get(env_var, "").strip()
+            if value:
+                filters.append(f"{flag} {value}")
+
+        if not filters:
+            return "RUN_ALL"
+
+        command = "RUN: " + " ".join(filters)
+        _echo(f"[runner] Filters: {command}")
+        return command
+
     def stage_testing(self):
         """Override PIO's stage_testing to manage the full serial lifecycle.
 
@@ -210,7 +242,8 @@ class EmbeddedTestRunner(_BaseRunner):
 
         try:
             self.protocol.reset_all()
-            self._run_test_cycle(command="RUN_ALL", reset=True)
+            initial_command = self._build_initial_command()
+            self._run_test_cycle(command=initial_command, reset=True)
 
             # Loop until all tests complete. When a test enters deep sleep,
             # the device reboots and context.run() is interrupted. We:

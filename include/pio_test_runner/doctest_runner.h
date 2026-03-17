@@ -235,6 +235,56 @@ inline bool apply_resume_after(doctest::Context& ctx, const char* test_name) {
 }
 
 /**
+ * @brief Parse filter flags from a RUN: command body.
+ *
+ * Supports:
+ *   --tc <pattern>   → test-case filter
+ *   --ts <pattern>   → test-suite filter
+ *   --tce <pattern>  → test-case-exclude
+ *   --tse <pattern>  → test-suite-exclude
+ *
+ * If the body contains no recognized flags, it's treated as a bare
+ * test-case filter for backwards compatibility (e.g. "RUN: *foo*").
+ */
+inline void apply_run_filters(doctest::Context& ctx, const String& body) {
+    struct { const char* flag; const char* option; } flags[] = {
+        {"--tc ",  "test-case"},
+        {"--ts ",  "test-suite"},
+        {"--tce ", "test-case-exclude"},
+        {"--tse ", "test-suite-exclude"},
+    };
+
+    bool any_flag = false;
+    for (auto& f : flags) {
+        int pos = body.indexOf(f.flag);
+        if (pos < 0) continue;
+        any_flag = true;
+
+        // Extract value: from after the flag to the next -- or end of string
+        int val_start = pos + strlen(f.flag);
+        int val_end = body.length();
+        for (int i = val_start; i < (int)body.length() - 1; ++i) {
+            if (body[i] == '-' && body[i + 1] == '-') {
+                val_end = i;
+                break;
+            }
+        }
+        String value = body.substring(val_start, val_end);
+        value.trim();
+        if (value.length() > 0) {
+            ctx.setOption(f.option, value.c_str());
+            Serial.printf("Runner filter: %s = %s\n", f.option, value.c_str());
+        }
+    }
+
+    if (!any_flag && body.length() > 0) {
+        // Backwards compatible: bare pattern is a test-case filter
+        ctx.setOption("test-case", body.c_str());
+        Serial.printf("Runner filter applied: %s\n", body.c_str());
+    }
+}
+
+/**
  * @brief Apply a runtime command from the host runner.
  *
  * @return true if tests should be executed, false if the command
@@ -245,8 +295,7 @@ inline bool apply_runner_command(doctest::Context& ctx, const String& command) {
         String filter = command.substring(4);
         filter.trim();
         if (filter.length() > 0) {
-            ctx.setOption("test-case", filter.c_str());
-            Serial.printf("Runner filter applied: %s\n", filter.c_str());
+            apply_run_filters(ctx, filter);
         }
         return true;
     } else if (command.startsWith("RESUME_AFTER:")) {
