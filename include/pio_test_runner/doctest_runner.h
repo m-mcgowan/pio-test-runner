@@ -293,6 +293,17 @@ inline String wait_for_command(uint32_t timeout_ms) {
             String raw = Serial.readStringUntil('\n');
             raw.trim();
             if (raw.length() > 0) {
+                // Strip leading garbage bytes from serial open (macOS DTR
+                // assertion injects stray bytes into USB-CDC RX). Protocol
+                // commands always start with an uppercase ASCII letter.
+                size_t start = 0;
+                while (start < raw.length() && !(raw[start] >= 'A' && raw[start] <= 'Z')) {
+                    start++;
+                }
+                if (start > 0 && start < raw.length()) {
+                    raw = raw.substring(start);
+                }
+
                 // Validate CRC at the transport layer
                 char buf[pio_test_runner::MAX_LINE_LEN];
                 size_t len = raw.length();
