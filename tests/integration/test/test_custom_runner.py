@@ -10,7 +10,7 @@ import sys
 # Add source dirs to path so imports resolve without pip install
 _here = os.path.dirname(os.path.abspath(__file__))
 _repo = os.path.normpath(os.path.join(_here, "..", "..", ".."))
-_bridge = os.path.normpath(os.path.join(_repo, "..", "embedded-bridge", "src"))
+_bridge = os.path.normpath(os.path.join(_repo, "..", "embedded-bridge", "python", "src"))
 
 for p in [os.path.join(_repo, "src"), _bridge]:
     if p not in sys.path:
