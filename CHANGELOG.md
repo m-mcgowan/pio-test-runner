@@ -5,8 +5,6 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-03-17
-
 First release. PlatformIO test runner with crash detection, deep sleep
 orchestration, and auto-install from GitHub.
 
@@ -23,7 +21,7 @@ orchestration, and auto-install from GitHub.
 - **Disconnect handler** — manages disconnect/reconnect windows for
   devices that sleep, reset, or crash
 - **Test result receiver** — parses device output for test results
-- **Robust doctest parser** — fixes PIO's doctest parser crash on
+- **Robust doctest parser** — fixes PIO doctest parser crash on
   lines ending with ':'
 - **Timing tracker** — per-test duration measurement with slow test
   reporting
@@ -35,6 +33,8 @@ orchestration, and auto-install from GitHub.
 - **On-device integration tests** — ESP32-S3 test project exercising
   protocol handshake, memory tracking, timing, disconnect, and deep
   sleep with two sleep cycles
+- **Release script** — `scripts/release.sh` automates version bump,
+  changelog dating, tagging, pushing, and GitHub release for both repos
 - Design documentation
 
 ### Fixed
@@ -42,3 +42,5 @@ orchestration, and auto-install from GitHub.
 - Teardown hang detection
 - Drain stale serial bytes before waiting for runner commands
 - Wait for device ack before closing serial after RESTART
+- Strip leading garbage bytes before CRC validation on device
+- Retry command when device re-sends READY after CRC failure
