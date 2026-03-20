@@ -443,31 +443,44 @@ inline void run_tests() {
 /**
  * @brief Idle loop after tests complete.
  *
- * Call from loop(). After the initial cycle, enters a new READY
- * handshake so the host can send follow-up commands (e.g.
- * RESTART to reboot for RESUME_AFTER, LIST, etc.).
+ * Call from loop(). After the initial cycle, blocks indefinitely
+ * waiting for host commands (RESTART, SLEEP, LIST, etc.).
+ * Never returns — prevents unintended test re-runs and battery drain.
  */
 inline void idle_loop() {
     if (!tests_complete) return;
 
-    // Accept follow-up commands
-    String command = wait_for_command(5000);
-    if (command.length() == 0) {
-        Serial.println("Tests complete");
-        return;
-    }
+    // Block forever waiting for host commands.
+    // This prevents the device from draining battery or re-running
+    // tests if USB causes a reset while no host is connected.
+    while (true) {
+        String command = wait_for_command(0);  // 0 = wait forever
 
-    if (command == "RESTART") {
-        Serial.println("[PTR] Restarting...");
-        Serial.flush();
-        delay(100);
+        if (command.length() == 0) {
+            // Should not happen with infinite wait, but be safe
+            delay(1000);
+            continue;
+        }
+
+        if (command == "RESTART") {
+            Serial.println("[PTR] Restarting...");
+            Serial.flush();
+            delay(100);
 #if defined(ESP_IDF_VERSION)
-        esp_restart();
+            esp_restart();
 #endif
+        } else if (command == "SLEEP") {
+            Serial.println("[PTR] Entering deep sleep...");
+            Serial.flush();
+            delay(100);
+#if defined(ESP_IDF_VERSION)
+            esp_deep_sleep_start();
+#endif
+        } else {
+            // LIST, RUN:, or other commands
+            run_cycle(command);
+        }
     }
-
-    // LIST or other non-run commands can be handled without restart
-    run_cycle(command);
 }
 
 }  // namespace ptr_doctest

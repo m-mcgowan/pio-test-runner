@@ -48,12 +48,12 @@ inline void signal_done() {
 /// Blocks until a non-empty line is received or timeout expires.
 /// Returns empty String on timeout (no runner present — backward compat).
 ///
-/// @param timeout_ms  Maximum time to wait in milliseconds.
+/// @param timeout_ms  Maximum time to wait (0 = wait forever).
 /// @return Command string: "RUN_ALL", "RUN: <filter>", or "" on timeout.
 inline String wait_for_command(uint32_t timeout_ms = 5000) {
     uint32_t start = millis();
     String line;
-    while (millis() - start < timeout_ms) {
+    while (timeout_ms == 0 || millis() - start < timeout_ms) {
         if (Serial.available()) {
             line = Serial.readStringUntil('\n');
             line.trim();

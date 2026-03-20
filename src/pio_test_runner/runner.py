@@ -392,12 +392,32 @@ class EmbeddedTestRunner(_BaseRunner):
                 break
             if self.crash_detector.triggered:
                 break
-            # Only let PIO's is_finished break us out during RUNNING —
-            # during WAITING_FOR_READY it may be stale from a previous cycle.
+            # PIO's doctest parser may declare finished before PTR:DONE.
+            # Keep reading so we receive PTR:DONE and can send SLEEP.
             if (self.protocol.state == ProtocolState.RUNNING
                     and self.test_suite.is_finished()):
-                self._finished_by_runner = True
+                # Give firmware a few seconds to emit PTR:DONE
+                _echo("[runner] PIO reports tests finished, waiting for PTR:DONE...")
+                done_deadline = time.time() + 5
+                while time.time() < done_deadline:
+                    try:
+                        data = self._ser.read(self._ser.in_waiting or 1)
+                    except Exception:
+                        break
+                    if data:
+                        self._on_serial_data(data)
+                    if self.protocol.state == ProtocolState.FINISHED:
+                        break
                 break
+
+        # Send SLEEP to put the device into deep sleep (prevents battery
+        # drain and unintended test re-runs from USB reset).
+        if self.protocol.state == ProtocolState.FINISHED and self._ser and self._ser.is_open:
+            try:
+                self._ser.write(b"SLEEP\n")
+                self._ser.flush()
+            except Exception:
+                pass  # best-effort — device may have disconnected
 
         self._close_serial()
 
