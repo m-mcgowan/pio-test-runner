@@ -190,48 +190,39 @@ inline void list_tests() {
 /**
  * @brief Resume tests after the named test.
  *
- * Iterates the test registry to find test_name, then builds a
- * test-case-exclude pattern for all tests up to and including it.
- * The subsequent context.run() will only execute tests after the
- * resume point.
+ * Finds the named test in the registry and uses doctest's "first" option
+ * to skip all tests up to and including it. O(1) memory — no exclude string.
  *
  * @param test_name  Exact name of the last completed test.
- * @return true if the test was found and excludes were applied.
+ * @return Number of tests skipped, or -1 if test_name not found.
  */
-inline bool apply_resume_after(doctest::Context& ctx, const char* test_name) {
+inline int apply_resume_after(doctest::Context& ctx, const char* test_name) {
     auto names = get_test_names();
     Serial.printf("RESUME_AFTER: \"%s\" (%u tests registered)\n",
                   test_name, (unsigned)names.size());
 
-    String exclude;
-    bool found = false;
+    // Find the index of the resume test
+    int resume_idx = -1;
     for (size_t i = 0; i < names.size(); ++i) {
-        if (exclude.length() > 0) {
-            exclude += ",";
-        }
-        exclude += "*";
-        exclude += names[i];
-        exclude += "*";
-
         if (strcmp(names[i], test_name) == 0) {
-            found = true;
+            resume_idx = static_cast<int>(i);
             break;
         }
     }
 
-    if (!found) {
+    if (resume_idx < 0) {
         Serial.printf("WARNING: test \"%s\" not found — running all tests\n",
                        test_name);
-        return false;
+        return -1;
     }
 
-    unsigned count = 1;
-    for (size_t i = 0; i < exclude.length(); ++i) {
-        if (exclude[i] == ',') count++;
-    }
-    Serial.printf("Excluding %u tests before resume point\n", count);
-    ctx.setOption("test-case-exclude", exclude.c_str());
-    return true;
+    // Use doctest's "first" option to skip to the test after the resume point.
+    // This is O(1) memory vs the old approach of building a giant exclude string
+    // that could exhaust heap with 700+ test names.
+    int skip = resume_idx + 1;
+    ctx.setOption("first", skip + 1);  // 1-indexed
+    Serial.printf("Skipping %d tests\n", skip);
+    return skip;
 }
 
 /**
@@ -290,34 +281,55 @@ inline void apply_run_filters(doctest::Context& ctx, const String& body) {
  * @return true if tests should be executed, false if the command
  *         was handled without needing a test run (e.g. LIST).
  */
-inline bool apply_runner_command(doctest::Context& ctx, const String& command) {
+struct RunCommand {
+    bool should_run = false;
+    int skip_count = 0;  // tests skipped by RESUME_AFTER
+};
+
+inline RunCommand apply_runner_command(doctest::Context& ctx, const String& command) {
     if (command.startsWith("RUN:")) {
         String filter = command.substring(4);
         filter.trim();
         if (filter.length() > 0) {
             apply_run_filters(ctx, filter);
         }
-        return true;
+        return {true, 0};
     } else if (command.startsWith("RESUME_AFTER:")) {
-        String name = command.substring(13);
-        name.trim();
-        if (name.length() > 0) {
-            apply_resume_after(ctx, name.c_str());
+        String rest = command.substring(13);
+        rest.trim();
+        // Format: "RESUME_AFTER: <test_name> [--tc ... --ts ...]"
+        // Split name from optional trailing filters at first "--"
+        String name = rest;
+        String filters;
+        int dash_pos = rest.indexOf(" --");
+        if (dash_pos >= 0) {
+            name = rest.substring(0, dash_pos);
+            filters = rest.substring(dash_pos + 1);
+            name.trim();
+            filters.trim();
         }
-        return true;
+        int skipped = 0;
+        if (name.length() > 0) {
+            skipped = apply_resume_after(ctx, name.c_str());
+            if (skipped < 0) skipped = 0;
+        }
+        if (filters.length() > 0) {
+            apply_run_filters(ctx, filters);
+        }
+        return {true, skipped};
     } else if (command == "LIST") {
         list_tests();
-        return false;
+        return {false, 0};
     } else if (command == "RUN_ALL") {
         Serial.println("Runner: RUN_ALL (no additional filter)");
-        return true;
+        return {true, 0};
     } else if (command.length() == 0) {
         Serial.println("No runner detected (timeout) — using compiled-in filters");
-        return true;
+        return {true, 0};
     } else {
         Serial.printf("Unknown runner command: %s — using compiled-in filters\n",
                        command.c_str());
-        return true;
+        return {true, 0};
     }
 }
 
@@ -331,9 +343,10 @@ inline bool apply_runner_command(doctest::Context& ctx, const String& command) {
  */
 inline String wait_for_command(uint32_t timeout_ms) {
     constexpr uint32_t READY_INTERVAL_MS = 1000;
+    const bool wait_forever = (timeout_ms == 0);
     uint32_t deadline = millis() + timeout_ms;
     uint32_t next_ready = 0;  // send immediately on first iteration
-    while (millis() < deadline) {
+    while (wait_forever || millis() < deadline) {
         if (millis() >= next_ready) {
             pio_test_runner::signal_ready();
             next_ready = millis() + READY_INTERVAL_MS;
@@ -386,9 +399,13 @@ inline void run_cycle(const String& command) {
     apply_compile_time_filters(context);
     context.applyCommandLine(0, nullptr);
 
-    bool should_run = apply_runner_command(context, command);
+    auto cmd = apply_runner_command(context, command);
 
-    if (should_run) {
+    if (cmd.should_run) {
+        unsigned total = static_cast<unsigned>(get_test_names().size());
+        unsigned skip = static_cast<unsigned>(cmd.skip_count);
+        pio_test_runner::print_test_count(total, skip, total - skip);
+
         try {
             int result = context.run();
             (void)result;
@@ -432,7 +449,7 @@ inline void run_tests() {
 #ifdef PTR_READY_TIMEOUT_MS
     constexpr uint32_t TIMEOUT_MS = PTR_READY_TIMEOUT_MS;
 #else
-    constexpr uint32_t TIMEOUT_MS = 5000;
+    constexpr uint32_t TIMEOUT_MS = 0;  // Wait forever for runner
 #endif
 
     String command = wait_for_command(TIMEOUT_MS);
@@ -453,6 +470,8 @@ inline void idle_loop() {
     // Block forever waiting for host commands.
     // This prevents the device from draining battery or re-running
     // tests if USB causes a reset while no host is connected.
+    // wait_for_command sends PTR:READY periodically so the runner
+    // knows the device is accepting commands.
     while (true) {
         String command = wait_for_command(0);  // 0 = wait forever
 

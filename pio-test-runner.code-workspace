@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../embedded-bridge"
+		},
+		{
+			"path": "../embedded-trace"
+		},
+		{
+			"path": "../embedded-menu"
+		}
+	]
+}

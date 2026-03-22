@@ -41,6 +41,11 @@ inline void signal_ready() {
     emit(Serial, "PTR:READY");
 }
 
+/// Report test counts before execution begins.
+inline void print_test_count(unsigned total, unsigned skip, unsigned run) {
+    emit(Serial, "PTR:TESTS total=%u skip=%u run=%u", total, skip, run);
+}
+
 /// Signal that all tests have completed.
 inline void signal_done() {
     emit(Serial, "PTR:DONE");
@@ -78,6 +83,21 @@ inline String wait_for_command(uint32_t timeout_ms = 5000) {
 /// uses the sleeping test name to build a filter for the wake cycle.
 inline void signal_sleep(uint32_t duration_ms) {
     emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)duration_ms);
+}
+
+/// Signal that the device will be busy (no serial output) for up to @p ms.
+/// The host extends its hang timeout accordingly.
+inline void signal_busy(uint32_t ms) {
+    emit(Serial, "PTR:BUSY ms=%lu", (unsigned long)ms);
+}
+
+/// Signal that the device is about to do a software restart.
+/// The host handles reconnection the same way as sleep — waits for
+/// port drop, reconnects, sends RUN: filter for Phase 2.
+///
+/// After calling this, the device should call esp_restart().
+inline void signal_restart() {
+    emit(Serial, "PTR:RESTART");
 }
 
 // =====================================================================

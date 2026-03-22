@@ -207,6 +207,13 @@ class EmbeddedTestRunner(_BaseRunner):
     # Orchestrated mode (runner owns serial)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _extract_filters(command):
+        """Extract filter flags from a RUN: command for re-use in RESUME_AFTER."""
+        if command.startswith("RUN:"):
+            return command[4:].strip()
+        return ""
+
     def _build_initial_command(self):
         """Build the initial RUN command from filters.
 
@@ -276,6 +283,7 @@ class EmbeddedTestRunner(_BaseRunner):
         try:
             self.protocol.reset_all()
             initial_command = self._build_initial_command()
+            self._initial_filters = self._extract_filters(initial_command)
             self._run_test_cycle(command=initial_command, reset=True)
 
             # Loop until all tests complete. When a test enters deep sleep,
@@ -313,11 +321,11 @@ class EmbeddedTestRunner(_BaseRunner):
                 # test order and builds its own exclude list.
                 if self.protocol.state != ProtocolState.SLEEPING and sleep_test:
                     _echo(f"[runner] Running remaining tests after: {sleep_test}")
-                    # Send RESTART to reboot the device — required so sleep
-                    # tests see a clean reset reason (not deep sleep wake).
                     self._restart_device()
-                    self._run_test_cycle(
-                        command=f"RESUME_AFTER: {sleep_test}", reset=False)
+                    resume_cmd = f"RESUME_AFTER: {sleep_test}"
+                    if self._initial_filters:
+                        resume_cmd += f" {self._initial_filters}"
+                    self._run_test_cycle(command=resume_cmd, reset=False)
 
         except Exception as exc:
             if serial is not None and isinstance(exc, serial.SerialException):
@@ -387,7 +395,7 @@ class EmbeddedTestRunner(_BaseRunner):
                 # Check for hang during RUNNING
                 if first_assertion_seen:
                     elapsed = time.time() - last_activity
-                    if elapsed > self._effective_hang_timeout():
+                    if elapsed > self._effective_hang_timeout() and not self.protocol.is_busy:
                         _secho(
                             f"\nHANG DETECTED: No output for {int(elapsed)}s — aborting",
                             fg="red", err=True,
@@ -459,7 +467,15 @@ class EmbeddedTestRunner(_BaseRunner):
             if not line:
                 continue
             # Our receivers process first (protocol, crash, memory, timing)
+            prev_total = self.protocol.test_total
             self.router.feed(line)
+            # Display test counts when first reported
+            if self.protocol.test_total and not prev_total:
+                p = self.protocol
+                if p.test_skip:
+                    _echo(f"[runner] Tests: {p.test_total} total, {p.test_skip} skipped, {p.test_run} to run")
+                else:
+                    _echo(f"[runner] Tests: {p.test_total} total")
             self._sync_test_name()
             self._check_crash()
             if self._finished_by_runner:
@@ -566,7 +582,15 @@ class EmbeddedTestRunner(_BaseRunner):
         return port
 
     def _open_serial(self, reset=True):
-        """Open serial connection to the device."""
+        """Open serial connection to the device.
+
+        Mirrors PlatformIO device monitor's serial setup: do_not_open=True,
+        only set DTR/RTS if explicitly requested (reset=True), then open().
+        When reset=False (reconnect after restart/sleep), DTR/RTS are not
+        touched — this avoids triggering USB_UART_CHIP_RESET on ESP32-S3.
+        """
+        if self._ser and self._ser.is_open:
+            return  # Already connected
         if serial is None:
             raise RuntimeError("pyserial not installed")
         port = self._resolve_port()
@@ -577,20 +601,13 @@ class EmbeddedTestRunner(_BaseRunner):
             baudrate=self.get_test_speed(),
             timeout=1,
         )
+
         if reset and not self.options.no_reset:
+            # Pre-set DTR/RTS before open for reset sequence
             self._ser.rts = self.options.monitor_rts
             self._ser.dtr = self.options.monitor_dtr
-        # else: leave DTR/RTS at pyserial defaults (True/True).
-        # On macOS, the kernel asserts DTR when the fd opens.
-        # Explicitly setting False would create a high→low transition
-        # that triggers USB_UART_CHIP_RESET on ESP32-S3 USB-Serial/JTAG.
-        self._ser.open()
 
-        # On macOS, opening the serial fd asserts DTR which injects a
-        # garbage byte into the device's USB-CDC RX buffer. Send a bare
-        # newline to terminate any garbage — the device's readStringUntil()
-        # returns the garbage as a short line which fails CRC and is discarded.
-        self._ser.write(b"\n")
+        self._ser.open()
 
         if reset and not self.options.no_reset:
             self._ser.flushInput()
@@ -601,13 +618,14 @@ class EmbeddedTestRunner(_BaseRunner):
             self._ser.setRTS(True)
             time.sleep(0.1)
 
+        # Flush any garbage from DTR assertion on macOS
+        self._ser.write(b"\n")
+
     def _restart_device(self):
         """Send RESTART command and wait for device to reboot.
 
-        The device calls esp_restart() which triggers a software reset.
-        On ESP32-S3 USB-CDC, the port disappears and reappears very quickly
-        (much faster than deep sleep wake). We wait for the device's
-        acknowledgment before closing serial, then let the reset complete.
+        Follows PlatformIO device monitor's reconnection pattern:
+        read until serial exception, close, retry open with increasing delay.
         """
         if not self._ser or not self._ser.is_open:
             self._open_serial(reset=False)
@@ -615,31 +633,40 @@ class EmbeddedTestRunner(_BaseRunner):
         _echo("[runner] Sending RESTART")
         self._send_command("RESTART")
 
-        # Wait for device to acknowledge RESTART before closing serial.
-        # On macOS USB-CDC, closing the fd immediately after flush() can
-        # abort the in-flight USB transfer before the device processes it.
-        ack_deadline = time.time() + 5
-        buf = ""
-        while time.time() < ack_deadline:
-            try:
+        # Read until port disappears or ack received
+        try:
+            deadline = time.time() + 5
+            buf = ""
+            while time.time() < deadline:
                 data = self._ser.read(self._ser.in_waiting or 1)
-            except Exception:
-                break  # Port disappeared — device is resetting
-            if data:
-                buf += data.decode("utf-8", errors="replace")
-                if "Restarting" in buf:
-                    _echo("[runner] Device acknowledged RESTART")
-                    break
-        else:
-            _secho("[runner] WARNING: No RESTART ack within 5s", fg="yellow", err=True)
+                if data:
+                    buf += data.decode("utf-8", errors="replace")
+                    if "Restarting" in buf:
+                        _echo("[runner] Device acknowledged RESTART")
+                        break
+        except Exception:
+            pass  # Port disappeared — device is resetting
 
+        # Close on exception — same as PIO device monitor
         self._close_serial()
 
-        # Brief wait for esp_restart() to complete. Software reset on
-        # ESP32-S3 USB-CDC is fast (~1s) — port monitoring often misses
-        # the brief disconnect. The next _run_test_cycle will wait for
-        # PTR:READY which confirms the device has rebooted.
-        time.sleep(2)
+        # Retry open with increasing delay — same as PIO device monitor.
+        # PIO monitor retries indefinitely; we cap at 30s for test runs.
+        retry = 0
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            wait = min((retry + 1) / 2.0, 2.0)
+            time.sleep(wait)
+            try:
+                self._open_serial(reset=False)
+                _echo("[runner] Reconnected after restart")
+                return
+            except Exception:
+                retry += 1
+                self._ser = None
+
+        _secho("[runner] WARNING: Could not reconnect after restart (30s)",
+               fg="yellow", err=True)
 
     def _close_serial(self):
         """Close serial connection."""

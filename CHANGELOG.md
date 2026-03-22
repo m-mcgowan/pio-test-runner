@@ -5,6 +5,20 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+### Changed
+- **Default READY timeout**: Device now waits indefinitely for runner
+  instead of timing out after 5s. The old timeout predated pio-test-runner
+  and caused race conditions with USB-CDC reconnection after upload.
+  Set `PTR_READY_TIMEOUT_MS` to restore a finite timeout.
+- **wait_for_command(0)**: Now correctly waits forever instead of returning
+  immediately (was: `millis() < millis()` = false)
+
+### Planned
+- **RESUME_FROM** — resume test run from a named test (rerun after transient
+  errors without re-running already-passed tests)
+- **Rerun failed tests** — collect failed test names, send `RUN:` filter
+  matching only those tests on next cycle
+
 ## [0.1.1] — 2026-03-18
 
 ### Added

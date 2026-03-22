@@ -14,6 +14,7 @@ The test runner reads its state to decide when to send commands.
 
 import enum
 import logging
+import time
 
 from .protocol import parse_line, parse_payload
 
@@ -50,6 +51,10 @@ class ReadyRunProtocol:
         self._current_test_timeout: int = 0  # per-test timeout from doctest annotation
         self._sleeping_test_name: str = ""
         self._completed_tests: list[str] = []  # test names seen across all cycles
+        self._test_total: int = 0
+        self._test_skip: int = 0
+        self._test_run: int = 0
+        self._busy_until: float = 0  # monotonic time when busy period ends
 
     def feed(self, message: bytes | str) -> None:
         """Feed a line of device output."""
@@ -100,7 +105,14 @@ class ReadyRunProtocol:
             # Per-test timeout from doctest::timeout(N) annotation
             self._current_test_timeout = int(timeout) if timeout else 0
 
-        # Check for sleep sentinel
+        # Test count report
+        elif parsed.tag == "TESTS":
+            payload = parse_payload(parsed.payload_str)
+            self._test_total = int(payload.get("total", 0))
+            self._test_skip = int(payload.get("skip", 0))
+            self._test_run = int(payload.get("run", 0))
+
+        # Check for sleep or restart sentinel
         elif parsed.tag == "SLEEP":
             payload = parse_payload(parsed.payload_str)
             ms_str = payload.get("ms", "0")
@@ -110,6 +122,21 @@ class ReadyRunProtocol:
             logger.info(
                 "Sleep requested: %dms (test: %s)",
                 self._sleep_duration_ms,
+                self._sleeping_test_name,
+            )
+
+        elif parsed.tag == "BUSY":
+            payload = parse_payload(parsed.payload_str)
+            ms_str = payload.get("ms", "0")
+            self._busy_until = time.monotonic() + int(ms_str) / 1000.0
+            logger.info("Device busy for %sms", ms_str)
+
+        elif parsed.tag == "RESTART":
+            self._sleep_duration_ms = 0  # No sleep, just restart
+            self._sleeping_test_name = self._current_test_name
+            self._state = ProtocolState.SLEEPING  # Reuse sleep flow
+            logger.info(
+                "Restart requested (test: %s)",
                 self._sleeping_test_name,
             )
 
@@ -172,6 +199,26 @@ class ReadyRunProtocol:
         return ""
 
     @property
+    def is_busy(self) -> bool:
+        """True if device signalled PTR:BUSY and the period hasn't expired."""
+        return time.monotonic() < self._busy_until
+
+    @property
+    def test_total(self) -> int:
+        """Total registered tests reported by device."""
+        return self._test_total
+
+    @property
+    def test_skip(self) -> int:
+        """Tests skipped (by RESUME_AFTER)."""
+        return self._test_skip
+
+    @property
+    def test_run(self) -> int:
+        """Tests to run this cycle."""
+        return self._test_run
+
+    @property
     def completed_tests(self) -> list[str]:
         """Test names seen across all cycles (for resume-after exclude)."""
         return list(self._completed_tests)
@@ -188,6 +235,9 @@ class ReadyRunProtocol:
         self._current_test_name = ""
         self._current_test_timeout = 0
         self._sleeping_test_name = ""
+        self._test_total = 0
+        self._test_skip = 0
+        self._test_run = 0
 
     def reset_all(self) -> None:
         """Full reset including completed test history."""
