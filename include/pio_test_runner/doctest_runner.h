@@ -518,6 +518,13 @@ inline void run_cycle(const String& command) {
 
     auto cmd = apply_runner_command(context, command);
 
+    // Project-specific context configuration hook.
+    // Called after all filters are applied, before tests run.
+    // Use for runtime-derived excludes (e.g. firmware version gating).
+#ifdef PTR_CONFIGURE_CONTEXT
+    PTR_CONFIGURE_CONTEXT(context);
+#endif
+
     if (cmd.should_run) {
         unsigned total = static_cast<unsigned>(get_test_names().size());
         unsigned skip = static_cast<unsigned>(cmd.skip_count);
@@ -530,6 +537,11 @@ inline void run_cycle(const String& command) {
             Serial.println("Exception caught during test execution");
         }
     }
+
+    // Hook for post-cycle actions (e.g. coverage dump)
+#ifdef PTR_AFTER_CYCLE
+    PTR_AFTER_CYCLE();
+#endif
 
     pio_test_runner::signal_done();
 }
