@@ -82,6 +82,40 @@ The `--unskip-tc`/`--unskip-ts` and `--skip-tc`/`--skip-ts` flags modify the doc
 
 Flags are processed left-to-right, so later flags override earlier ones on the same test: `--skip-tc *foo* --unskip-tc *foo*` leaves foo unskipped.
 
+## Configuration
+
+The firmware-side doctest runner (`doctest_runner.h`) supports these configuration macros. Define them before including the header:
+
+```cpp
+#define DOCTEST_CONFIG_IMPLEMENT
+#include <doctest.h>
+
+// Optional: board-specific initialization
+static bool my_board_init(Print& log) {
+    // mount filesystem, detect board revision, etc.
+    return true;  // false halts tests
+}
+#define PTR_BOARD_INIT my_board_init
+
+// Optional: configure doctest context before test execution
+static void my_configure(doctest::Context& ctx) {
+    ctx.setOption("order-by", "name");
+}
+#define PTR_CONFIGURE_CONTEXT my_configure
+
+#include <pio_test_runner/doctest_runner.h>
+
+void setup() { DOCTEST_SETUP(); }
+void loop()  { DOCTEST_LOOP(); }
+```
+
+| Macro | Type | Default | Description |
+|-------|------|---------|-------------|
+| `PTR_BOARD_INIT` | `bool fn(Print&)` | none | Board setup before tests. Return false to halt. |
+| `PTR_CONFIGURE_CONTEXT` | `void fn(doctest::Context&)` | none | Configure doctest context before each cycle. |
+| `PTR_AFTER_CYCLE` | `void fn()` | none | Called after each test cycle completes. |
+| `PTR_READY_TIMEOUT_MS` | `uint32_t` | `0` (forever) | Max time to wait for host runner. Set to e.g. `30000` for standalone operation without a host. |
+
 ## Status
 
 | Feature | Design | Docs | Impl | Tests | Examples | Since | Updated |

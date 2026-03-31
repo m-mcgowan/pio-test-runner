@@ -34,3 +34,4 @@ fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore::pytest.PytestCollectionWarning"]

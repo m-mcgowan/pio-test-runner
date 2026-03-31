@@ -5,3 +5,6 @@ dist/
 build/
 .pytest_cache/
 .githooks/
+
+# Compiled native test binaries
+tests/test_doctest_internals

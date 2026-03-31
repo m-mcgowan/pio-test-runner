@@ -5,19 +5,57 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-03-31
+
+### Added
+- **Runtime skip control** — `--unskip-tc`, `--unskip-ts`, `--skip-tc`,
+  `--skip-ts` flags modify doctest's `m_skip` on the test registry before
+  the filter chain runs. Compose with `--tc`/`--ts` for selective unskipping
+  of crash/stress tests without running all skipped tests.
+  Environment variables: `PTR_UNSKIP_TEST_CASE`, `PTR_UNSKIP_TEST_SUITE`,
+  `PTR_SKIP_TEST_CASE`, `PTR_SKIP_TEST_SUITE`.
+- **`--no-skip` passthrough** — doctest's global `--no-skip` flag now works
+  via `-a "--no-skip"` or `PTR_NO_SKIP=1` environment variable.
+- **Full doctest CLI passthrough** — `apply_run_filters()` now tokenizes
+  the RUN command body into argv and passes it to `applyCommandLine()`,
+  supporting all doctest native flags (comma-separated patterns, multiple
+  instances of the same flag, `--no-skip`, etc.).
+- **`PTR_CONFIGURE_CONTEXT` hook** — define as a function
+  `void fn(doctest::Context&)` to configure the context before test execution
+  (e.g., set custom options, add filters).
+- **`PTR:BUSY` protocol message** — firmware signals it will be busy for
+  a specified duration; host extends hang timeout accordingly.
+- **`PTR:RESTART` protocol message** — firmware signals an imminent software
+  restart; host handles reconnection like a sleep cycle.
+- **Per-test timeout annotation** — `PTR:TEST:START` now includes
+  `timeout=N` from `doctest::timeout(N)` decorators for host-side
+  enforcement.
+- **Test count reporting** — `PTR:TESTS total=N skip=N run=N` emitted
+  before test execution begins.
+- **SLEEP command** — host sends SLEEP after test completion to prevent
+  battery drain on idle devices.
+- **Largest contiguous block** — `PTR:MEM:BEFORE/AFTER` markers now include
+  `largest=N` (largest free heap block) on ESP-IDF builds.
+- **`PTR_AFTER_CYCLE` hook** — called after each test cycle completes.
+
 ### Changed
 - **Default READY timeout**: Device now waits indefinitely for runner
   instead of timing out after 5s. The old timeout predated pio-test-runner
   and caused race conditions with USB-CDC reconnection after upload.
   Set `PTR_READY_TIMEOUT_MS` to restore a finite timeout.
-- **wait_for_command(0)**: Now correctly waits forever instead of returning
-  immediately (was: `millis() < millis()` = false)
+- **Skip control flags processed left-to-right** — later flags override
+  earlier ones on the same test (`--skip-tc *foo* --unskip-tc *foo*` leaves
+  foo unskipped).
 
-### Planned
-- **RESUME_FROM** — resume test run from a named test (rerun after transient
-  errors without re-running already-passed tests)
-- **Rerun failed tests** — collect failed test names, send `RUN:` filter
-  matching only those tests on next cycle
+### Removed
+- **`pio_test_runner::wait_for_command()`** — legacy function in
+  `test_runner.h` without CRC validation or READY signalling. Use
+  `ptr_doctest::wait_for_command()` from `doctest_runner.h` instead.
+
+### Fixed
+- **`wait_for_command(0)`**: Now correctly waits forever instead of returning
+  immediately (was: `millis() < millis()` = false)
+- **`print_mem_after`**: Use `#else` instead of `return` before `#endif`
 
 ## [0.1.1] — 2026-03-18
 

@@ -19,493 +19,243 @@ assumption constantly:
 - **Crashes** — a backtrace scrolls past; PIO doesn't distinguish
   "crash" from "test output"
 
-The existing solution is a collection of scripts scattered across
-firmware projects: `disconnectable_doctest_runner.py`,
-`stop_on_crash.py`, `run_tests.sh`, acceptance test fixtures in
-`conftest.py`. These work but are duplicated, tightly coupled to
-doctest, and not reusable.
-
 pio-test-runner extracts these patterns into a standalone PlatformIO
-plugin that:
+plugin with reusable firmware headers.
 
-1. Works with **any test framework** (doctest, Unity, custom) — it
-   orchestrates the device lifecycle, not the assertion format
-2. Uses **embedded-bridge receivers** for crash detection and message
-   routing — not its own one-off pattern matching
-3. Provides **reusable pytest fixtures** for acceptance tests that
-   involve device sleep/wake, configuration changes, or multi-step
-   sequences
+## Architecture
 
-## How It Works with PlatformIO
+```
+Host (Python)                          Device (C++ firmware)
+─────────────                          ────────────────────
+EmbeddedTestRunner                     doctest_runner.h
+  ├─ ReadyRunProtocol                    ├─ wait_for_command()
+  │    state machine:                    │    sends PTR:READY
+  │    READY→RUN→DONE                    │    receives RUN:/RUN_ALL
+  ├─ CrashDetector                       ├─ run_cycle()
+  │    backtrace, WDT, panic             │    apply filters
+  ├─ MemoryTracker                       │    modify_skip (unskip/skip)
+  │    PTR:MEM:BEFORE/AFTER              │    context.run()
+  ├─ TimingTracker                       │    signal_done()
+  │    PTR:TEST:START                    ├─ idle_loop()
+  ├─ RobustDoctestParser                 │    SLEEP/RESTART/re-run
+  │    doctest output → results          └─ test_runner.h
+  └─ DisconnectHandler                       PTR: protocol emit helpers
+       PTR:DISCONNECT/RECONNECT
+```
 
-### PIO's test runner plugin system
+### How it works with PlatformIO
 
-PlatformIO allows custom test runners by extending its base runner
-class. The runner is registered via a plugin module and selected in
-`platformio.ini`:
+PlatformIO manages build/upload. The runner is selected via:
 
 ```ini
 [env:esp32s3]
-test_framework = custom  ; or doctest, unity — runner wraps any
-custom_test_runner = pio_test_runner
+test_framework = custom
+lib_deps =
+    https://github.com/m-mcgowan/pio-test-runner.git
 ```
 
-PIO manages the build/upload cycle and serial connection. It calls the
-runner's `on_testing_line_output(line)` for each line of serial output.
-The runner processes lines and reports test results back to PIO.
+A `test_custom_runner.py` shim imports `EmbeddedTestRunner` and PIO
+calls its `stage_testing()` method. The runner opens the serial port,
+runs the READY/RUN/DONE handshake, processes output through the
+receiver pipeline, and reports results back to PIO.
 
 ### Where embedded-bridge fits
 
-The test runner does **not** create a `Bridge` instance — PIO owns the
-serial connection. Instead, the runner creates **embedded-bridge
-receivers** directly and feeds them lines from PIO's callback:
+The runner uses **embedded-bridge** for:
+- CRC-8 checksums on protocol lines (transport integrity)
+- `Router` for dispatching serial lines to multiple receivers
+- `CrashDetector` patterns (backtrace, guru meditation, WDT, abort)
 
-```mermaid
-graph LR
-    PIO[PlatformIO<br/><i>owns serial</i>]
-    Runner[EmbeddedTestRunner]
-    Crash[CrashDetector<br/><i>from embedded-bridge</i>]
-    Disc[DisconnectHandler]
-    Results[TestResultParser]
-    Rtr[Router<br/><i>from embedded-bridge</i>]
-
-    PIO -- "on_testing_line_output()" --> Runner
-    Runner --> Rtr
-    Rtr --> Crash
-    Rtr --> Disc
-    Rtr --> Results
-```
-
-```python
-from platformio.test.runners.base import TestRunnerBase
-from embedded_bridge.receivers import CrashDetector, Router
-
-class EmbeddedTestRunner(TestRunnerBase):
-    NAME = "embedded"
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.crash_detector = CrashDetector()
-        self.disconnect_handler = DisconnectHandler()
-        self.result_receiver = TestResultReceiver()  # framework-agnostic
-        self.router = Router([
-            (self.crash_detector, None),          # sees all messages
-            (self.disconnect_handler, None),      # sees all messages
-            (self.result_receiver, None),          # sees all messages
-        ])
-
-    def on_testing_line_output(self, line):
-        self.router.feed(line)  # PIO gives us lines; feed directly
-
-        if self.crash_detector.triggered:
-            self.report_crash(self.crash_detector.reason)
-            return
-
-        if self.disconnect_handler.active:
-            return  # suppress output during disconnect
-
-        # Report test results to PIO
-        for result in self.result_receiver.drain_results():
-            self.report_test_result(result)
-```
-
-The rest of the codebase — acceptance test fixtures, standalone scripts
-— can use embedded-bridge's full `Bridge` class with transport when they
-need to own the connection. The receivers are the same either way.
-
----
+The runner does NOT create a `Bridge` instance — PIO owns the serial
+connection (or the runner opens it directly for the custom framework).
 
 ## Core Components
 
-### DisconnectHandler
+### PTR Protocol (`protocol.h`, `protocol.py`)
 
-Manages the disconnect/reconnect protocol between firmware and host.
+All protocol messages use the `PTR:` prefix with CRC-8 checksums.
+The firmware emits via `pio_test_runner::emit()`, the host validates
+via `validate_crc()`.
 
-**Protocol:**
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `PTR:READY` | Device→Host | Device ready for commands |
+| `RUN_ALL` | Host→Device | Run all tests |
+| `RUN: <flags>` | Host→Device | Run with filters |
+| `RESUME_AFTER: <name>` | Host→Device | Skip tests up to name |
+| `PTR:TESTS total=N skip=N run=N` | Device→Host | Test count before execution |
+| `PTR:TEST:START suite=".." name=".."` | Device→Host | Test timing marker |
+| `PTR:MEM:BEFORE free=N min=N largest=N` | Device→Host | Heap before test |
+| `PTR:MEM:AFTER free=N delta=N min=N largest=N` | Device→Host | Heap after test |
+| `PTR:DONE` | Device→Host | All tests complete |
+| `PTR:SLEEP ms=N` | Device→Host | Entering deep sleep |
+| `PTR:RESTART` | Device→Host | Software restart imminent |
+| `PTR:BUSY ms=N` | Device→Host | Busy, extend hang timeout |
+| `PTR:DISCONNECT ms=N` | Device→Host | Serial going away |
+| `PTR:RECONNECT` | Device→Host | Serial restored |
+| `SLEEP` | Host→Device | Enter deep sleep (idle) |
+| `RESTART` | Host→Device | Restart device (idle) |
+| `LIST` | Host→Device | List registered tests |
 
-```mermaid
-sequenceDiagram
-    participant FW as Firmware
-    participant Host as Host (test runner)
+### ReadyRunProtocol (`ready_run_protocol.py`)
 
-    FW->>Host: request_disconnect(5000)
-    Note over FW: Serial.flush()
-    Note over FW: Serial.end()
-    Note over Host: pauses monitoring
-    Note over FW: sleep / reset / reflash
-    Note over Host: waits 5s
-    Note over FW: Serial.begin(115200)
-    FW->>Host: signal_reconnect()
-    Note over Host: resumes monitoring
-```
+State machine for the READY/RUN/DONE handshake:
 
-The firmware controls the timing. It tells the host how long it will
-be gone, disconnects, does whatever it needs (sleep, reset, reflash
-a peripheral), reconnects, and signals readiness.
+1. Device boots, sends `PTR:READY` periodically
+2. Host sends `RUN_ALL`, `RUN: <filters>`, or `RESUME_AFTER: <name>`
+3. Device runs tests, may emit `PTR:SLEEP` for deep sleep
+4. Device sends `PTR:DONE` when finished
 
-#### Firmware-side API
+The state machine handles:
+- CRC validation on host→device commands
+- Garbage byte stripping (USB-CDC DTR assertion noise)
+- Timeout detection with configurable hang threshold
+- SLEEP sentinel detection + device reconnection
 
-pio-test-runner ships a small C++ header that firmware includes. The
-wire format is an implementation detail — firmware uses the API, not
-raw `Serial.println()`:
+### EmbeddedTestRunner (`runner.py`)
+
+PlatformIO test runner plugin. Key methods:
+
+- `stage_testing()` — main entry: opens serial, runs test cycles,
+  handles sleep/wake loops, reports results
+- `_build_initial_command()` — combines `-a` program args with
+  `PTR_*` environment variables into a `RUN:` command
+- `_run_test_cycle()` — single READY→RUN→DONE cycle with crash
+  detection and hang monitoring
+
+### DisconnectHandler (`disconnect.py`)
+
+Manages disconnect/reconnect windows for devices that sleep, reset,
+or reconfigure during tests. The firmware controls the timing:
 
 ```cpp
-// pio_test_runner/test_runner.h (shipped with this project)
-namespace pio_test_runner {
-    /// Tell the host we're going away for `duration_ms` milliseconds.
-    /// Call this BEFORE Serial.end() / deep sleep / reset.
-    void request_disconnect(uint32_t duration_ms);
-
-    /// Tell the host we're back. Call this AFTER Serial.begin().
-    void signal_reconnect();
-}
+pio_test_runner::request_disconnect(5000);  // going away for 5s
+Serial.end();
+// ... sleep / reset / reflash ...
+Serial.begin(115200);
+pio_test_runner::signal_reconnect();        // back
 ```
 
-The wire format for these messages will be defined as part of the
-protocol between the C++ header and the Python `DisconnectHandler`.
-Both are maintained in this project so they stay in sync.
+### CrashDetector (from embedded-bridge)
 
-Firmware projects include this via `lib_deps` in `platformio.ini`
-(or a symlink during early development).
+Detects device crashes from serial output patterns:
+- `Backtrace:` — ESP32 backtrace
+- `Guru Meditation` — ESP32 panic
+- `abort()` / `assert failed`
+- `E (NNNN) task_wdt:` — Task watchdog timeout
+- `Rebooting...` — Post-crash reboot
 
-#### Host-side handler
+### Doctest Runner (`doctest_runner.h`)
 
-```python
-class DisconnectHandler:
-    """Receives disconnect/reconnect protocol messages from firmware."""
+Firmware-side test harness for doctest. Provides:
 
-    def feed(self, message: str) -> None:
-        # Intercepts protocol messages from firmware
-        ...
+- `DOCTEST_SETUP()` / `DOCTEST_LOOP()` — call from Arduino setup/loop
+- `PtrTestListener` — doctest reporter emitting PTR markers
+- `wait_for_command()` — READY/RUN handshake with CRC validation
+- `run_cycle()` — apply filters, run tests, signal done
+- `idle_loop()` — post-test command loop (SLEEP, RESTART, re-run)
 
-    @property
-    def active(self) -> bool:
-        """True while in a disconnect window — output should be suppressed."""
-        ...
+**Configuration hooks** (define before including `doctest_runner.h`):
 
-    @property
-    def disconnect_count(self) -> int:
-        """Number of disconnect/reconnect cycles completed."""
-        ...
-```
-
-**Not just sleep** — the disconnect protocol is general-purpose. The
-firmware might:
-- Enter deep sleep (USB-CDC disappears)
-- Reboot deliberately (testing boot sequences)
-- Reconfigure a peripheral that requires serial reinit
-- Flash a coprocessor over the same bus
-
-The host doesn't need to know *why* the device disconnected — it just
-respects the timing window.
-
-### TestResultReceiver
-
-Receives test results from any framework's output format.
-
-```python
-class TestResultReceiver:
-    """Framework-agnostic test result extraction."""
-
-    def feed(self, message: str) -> None: ...
-    def drain_results(self) -> list[TestResult]: ...
-```
-
-**Built-in format support:**
-
-| Framework | Pass pattern | Fail pattern |
-|-----------|-------------|-------------|
-| doctest | `[doctest] test cases: N \| N passed` | `FAILED:` with assertion details |
-| Unity | `:PASS` | `:FAIL:` |
-| Custom | Configurable regex patterns | Configurable regex patterns |
-
-The receiver extracts individual test case results (name, pass/fail,
-duration, failure message) and normalizes them into a common
-`TestResult` structure that PIO can report.
-
-### SleepWakeMonitor (from embedded-bridge)
-
-Sleep/wake detection lives in embedded-bridge (it's a general-purpose
-receiver, not test-specific). pio-test-runner uses it to avoid false
-timeouts during expected sleep and in acceptance test fixtures to
-coordinate multi-step sleep/wake test sequences.
-
-```python
-from embedded_bridge.receivers import SleepWakeMonitor
-
-monitor = SleepWakeMonitor(port_path="/dev/ttyACM0")
-monitor.state           # "awake", "sleeping", or "waking"
-monitor.sleep_duration  # expected duration, if reported by firmware
-```
-
-See the embedded-bridge design doc for full details on detection
-methods (serial patterns, USB-CDC port disappearance, wake detection).
+| Macro | Signature | Purpose |
+|-------|-----------|---------|
+| `PTR_BOARD_INIT` | `bool fn(Print&)` | Board setup before tests (return false to halt) |
+| `PTR_CONFIGURE_CONTEXT` | `void fn(doctest::Context&)` | Configure doctest context before run |
+| `PTR_AFTER_CYCLE` | `void fn()` | Called after each test cycle completes |
+| `PTR_READY_TIMEOUT_MS` | `uint32_t` | Max wait for host (default: 0 = forever) |
 
 ### Test Filtering
 
-Tests can be filtered at two levels: **compile-time** (baked into the
-firmware binary) and **runtime** (sent by the host over serial). Both
-are optional and independent — but understanding their interaction is
-important, especially for sleep/wake tests.
+Two-phase filter processing in `apply_run_filters()`:
 
-#### Compile-time filters (`test_runner_config.h`)
+1. **PTR-specific flags** (`--unskip-tc`, `--skip-tc`, etc.) modify
+   `m_skip` on the doctest test registry. Processed left-to-right
+   so later flags override earlier ones.
+2. **Remaining flags** passed to `context.applyCommandLine()` for
+   doctest's native filter processing (`--tc`, `--ts`, `--tce`,
+   `--tse`, `--no-skip`, comma-separated patterns, etc.).
 
-A generated header defines macros that `doctest_runner.h` applies via
-`context.setOption()` before tests execute:
+Compile-time filters (`TEST_FILTER_SUITE`, etc.) are applied first
+and compose additively with runtime filters.
 
-```c
-#pragma once
-// Auto-generated — do not commit
-#define TEST_FILTER_SUITE "*GPS*"        // doctest -ts=
-#define TEST_FILTER_CASE  "*timeout*"    // doctest -tc=
-#define TEST_EXCLUDE_SUITE "*slow*"      // doctest -tse=
-#define TEST_EXCLUDE_CASE  "*flaky*"     // doctest -tce=
-#define TEST_VERBOSE 1                   // enable duration/success output
-```
+### Sleep/Wake Orchestration
 
-These map directly to doctest's command-line options:
+When a test enters deep sleep:
 
-| Macro | doctest option | Effect |
-|-------|---------------|--------|
-| `TEST_FILTER_SUITE` | `-ts=<value>` | Only run suites matching pattern |
-| `TEST_FILTER_CASE` | `-tc=<value>` | Only run cases matching pattern |
-| `TEST_EXCLUDE_SUITE` | `-tse=<value>` | Skip suites matching pattern |
-| `TEST_EXCLUDE_CASE` | `-tce=<value>` | Skip cases matching pattern |
-| `TEST_VERBOSE` | `--success --duration` | Print all assertions |
-
-Patterns use doctest's wildcard syntax: `*` matches any sequence of
-characters. Patterns are case-sensitive.
-
-**Lifecycle**: Compile-time filters require a firmware rebuild to change.
-Projects typically have a script (e.g. `run_tests.py`) that generates
-the header and triggers a rebuild. **Clear the header after use** — a
-stale filter silently restricts all future test runs until someone
-notices tests are being skipped.
-
-A clean `test_runner_config.h` with no filters:
-
-```c
-#pragma once
-// Auto-generated — do not commit
-// No filter - run all tests
-```
-
-#### Runtime filters (`RUN:` command)
-
-After the device boots and sends `PTR:READY`, the host sends one of:
-
-- `RUN_ALL` — no additional filter (use compile-time filters only)
-- `RUN: <pattern>` — set doctest's `test-case` filter to `<pattern>`
-- `RESUME_AFTER: <test_name>` — skip all tests up to and including
-  the named test, then run the rest (see "Running remaining tests
-  after sleep" below)
-
-**Important**: The runtime `RUN:` command sets the **test-case** option
-(`-tc`), NOT the test-suite option. It does not clear or override any
-compile-time filters. Both are additive — a test must match both the
-compile-time suite filter AND the runtime case filter to execute.
-
-This means if `TEST_FILTER_SUITE` is set to `"*GPS*"` at compile time,
-sending `RUN: *sleep*` at runtime will only run tests that are in a
-GPS suite AND have "sleep" in their case name.
-
-#### Filter interaction during sleep/wake
-
-When a test calls `test_deep_sleep()`, the device reboots. On wake:
-
-1. Device runs `run_tests()` from scratch (full boot sequence)
-2. `apply_compile_time_filters()` runs again — same filters as before
-3. Device sends `PTR:READY`
-4. Host sends `RUN: *<sleeping_test_name>*` — targets just the
-   sleeping test's Phase 2
-5. `apply_runner_command()` sets `test-case` to the sleeping test name
-6. The sleeping test detects Phase 2 via `is_test_wake()` (RTC_NOINIT
-   marker) and runs its verification logic
-7. `PTR:DONE` sent after the test completes
-
-The compile-time suite filter persists across the sleep/wake boundary
-(it's compiled into the binary). The runtime filter is re-sent by the
-host after wake. No filter state needs to be persisted in RTC memory.
-
-#### Running remaining tests after sleep
-
-When a test enters deep sleep, `context.run()` is interrupted and any
-tests registered after the sleep test never execute. The host handles
-this automatically:
-
-1. **First cycle**: `RUN_ALL` — runs tests until one sleeps.
-2. **Sleep resume**: `RUN: *<sleeping_test>*` — runs Phase 2 only.
-3. **Remaining cycle**: `RESUME_AFTER: <sleeping_test>` — the device
-   does a listing-only doctest pass to discover test order, builds an
-   exclude for all tests up to and including the named test, then runs
-   only the remaining tests.
+1. **First cycle**: `RUN_ALL` — tests run until one calls
+   `signal_sleep()`.
+2. **Sleep resume**: Host waits, reconnects, sends
+   `RUN: *<sleeping_test>*` — runs Phase 2 only.
+3. **Remaining cycle**: `RESUME_AFTER: <sleeping_test>` — device
+   uses doctest's `first` option to skip past completed tests.
 4. **Repeat**: If another test sleeps during step 3, the loop
-   continues — resume it, then run another remaining cycle.
-
-The `RESUME_AFTER:` command is handled entirely on the device side.
-The device performs a `list-test-cases` dry run to get the ordered
-test list, then sets `test-case-exclude` for everything before the
-resume point. This avoids the host needing to track test names or
-build exclude patterns — it just sends the name of the last test
-that completed before the sleep.
-
-#### TestConfigGenerator (planned)
-
-A Python utility to generate `test_runner_config.h`. Currently
-specified but not implemented — projects use their own scripts
-(e.g. `run_tests.py` in the firmware project).
-
-```python
-class TestConfigGenerator:
-    """Generate test_runner_config.h for embedded test filtering."""
-
-    def generate(
-        self,
-        test_case: str | None = None,
-        test_suite: str | None = None,
-        exclude_case: str | None = None,
-        exclude_suite: str | None = None,
-    ) -> str:
-        """Return header file content with #define filter macros."""
-        ...
-```
-
----
-
-## Test Orchestration Flow
-
-### Unit/integration tests (via PIO)
-
-```mermaid
-graph TB
-    PIO["pio test -e esp32s3"]
-    Build[Build + upload firmware]
-    Serial[Open serial connection]
-    Runner[EmbeddedTestRunner.on_testing_line_output]
-    Crash[CrashDetector:<br/>abort on backtrace/WDT/panic]
-    Disc[DisconnectHandler:<br/>pause during disconnect windows]
-    Results[TestResultReceiver:<br/>extract pass/fail results]
-    Sleep[SleepWakeMonitor:<br/>track sleep/wake state]
-    Report[Report results to PIO]
-
-    PIO --> Build --> Serial --> Runner
-    Runner --> Crash
-    Runner --> Disc
-    Runner --> Results
-    Runner --> Sleep
-    Runner --> Report
-```
-
-### Acceptance tests (via pytest)
-
-```python
-# conftest.py
-import pytest
-from embedded_bridge import Bridge, SerialTransport
-from embedded_bridge.receivers import CrashDetector, SleepWakeMonitor
-
-@pytest.fixture
-def device_bridge(request):
-    """Provide a Bridge connected to the device under test."""
-    bridge = Bridge(
-        transport=SerialTransport(device_port(), 115200),
-        receivers=[CrashDetector()],
-    )
-    bridge.connect()
-    yield bridge
-    bridge.disconnect()
-
-@pytest.fixture
-def sleep_monitor(device_bridge):
-    """Monitor sleep/wake transitions."""
-    monitor = SleepWakeMonitor(
-        port_path=device_bridge.transport.port_path,
-    )
-    device_bridge.add_receiver(monitor)
-    return monitor
-```
-
-```python
-# test_sleep_cycle.py
-def test_device_sleeps_and_wakes(device_bridge, sleep_monitor):
-    """Verify device completes a sleep/wake cycle."""
-    device_bridge.send_command("start_sleep_test")
-
-    # Wait for device to enter sleep
-    assert sleep_monitor.wait_for_state("sleeping", timeout=30)
-
-    # Wait for device to wake
-    assert sleep_monitor.wait_for_state("awake", timeout=120)
-
-    # Verify device is functional after wake
-    response = device_bridge.send_command("status", expect_ack=True)
-    assert response.success
-```
-
----
-
-## Relationship to Existing Code
-
-### What moves here from firmware projects
-
-| Existing file | Becomes | Notes |
-|---------------|---------|-------|
-| `disconnectable_doctest_runner.py` | `EmbeddedTestRunner` | Framework-agnostic, not doctest-specific |
-| `stop_on_crash.py` | Uses `embedded_bridge.CrashDetector` | Logic moves to embedded-bridge |
-| `run_tests.sh` | `pio-test-runner` CLI or PIO plugin | Shell script becomes proper Python |
-| `run_tests.py` (config gen) | `TestConfigGenerator` | |
-| `conftest.py` sleep/wake helpers | `SleepWakeMonitor` + fixtures | Reusable across projects |
-
-### What stays in firmware projects
-
-- Test source files (`test_*.cpp`) — these are project-specific
-- Acceptance test cases (`test_sleep_cycle.py`) — project-specific
-- Project-specific `conftest.py` fixtures (Notehub API, device-specific
-  setup) — these import from pio-test-runner but aren't part of it
-
----
+   continues.
 
 ## Project Structure
 
 ```
 pio-test-runner/
-├── pyproject.toml
+├── pyproject.toml               # Python package config (setuptools_scm)
+├── library.json                 # PlatformIO library metadata
 ├── LICENSE
 ├── README.md
+├── CHANGELOG.md
 ├── docs/
-│   └── design.md                      # this file
+│   └── design.md                # this file
 ├── include/
 │   └── pio_test_runner/
-│       └── test_runner.h              # firmware-side C++ API
+│       ├── protocol.h           # CRC-8 wire format, emit() helper
+│       ├── test_runner.h        # firmware protocol API (disconnect, sleep, memory)
+│       └── doctest_runner.h     # doctest integration (filters, READY/RUN, idle loop)
 ├── src/
 │   └── pio_test_runner/
-│       ├── __init__.py
-│       ├── runner.py                  # EmbeddedTestRunner (PIO plugin)
-│       ├── disconnect.py             # DisconnectHandler
-│       ├── result_receiver.py        # TestResultReceiver (multi-framework)
-│       ├── config_generator.py       # TestConfigGenerator
-│       └── fixtures/
-│           ├── __init__.py
-│           ├── bridge.py             # device_bridge fixture
-│           ├── sleep.py              # wait_for_sleep / wait_for_wake
-│           └── firmware.py           # firmware_builder fixture
+│       ├── __init__.py          # exports EmbeddedTestRunner
+│       ├── runner.py            # PIO plugin: EmbeddedTestRunner
+│       ├── protocol.py          # CRC-8 format/validate, line parsing
+│       ├── ready_run_protocol.py # READY/RUN/DONE state machine
+│       ├── disconnect.py        # DisconnectHandler
+│       ├── result_receiver.py   # TestResultReceiver (multi-framework)
+│       ├── robust_doctest_parser.py  # fixes PIO doctest parser crash
+│       └── timing_tracker.py    # per-test duration + slow test report
+├── examples/
+│   └── test_custom_runner.py    # copy to project; auto-installs deps
+├── scripts/
+│   └── release.sh               # version bump, tag, push, GH release
 └── tests/
-    ├── test_disconnect.py
+    ├── conftest.py              # PIO mock infrastructure
+    ├── test_runner.py           # EmbeddedTestRunner tests
+    ├── test_protocol.py         # CRC-8 format/validate tests
+    ├── test_ready_run_protocol.py
     ├── test_result_receiver.py
-    └── test_config_generator.py
+    ├── test_robust_doctest_parser.py
+    ├── test_timing_tracker.py
+    ├── test_disconnect.py
+    ├── test_skip_control.py     # env var + command building tests
+    ├── test_doctest_internals.cpp  # native C++ tests (glob, tokenize, modify_skip)
+    └── integration/             # on-device ESP32-S3 test project
+        ├── platformio.ini
+        ├── test/
+        │   ├── main.cpp
+        │   ├── test_custom_runner.py
+        │   ├── test_protocol.cpp
+        │   ├── test_memory_tracking.cpp
+        │   ├── test_timing.cpp
+        │   ├── test_skip_control.cpp
+        │   └── test_z_deep_sleep.cpp
+        └── boards/
+            └── esp32s3.ini
 ```
 
-### Dependencies
+## Dependencies
 
-```toml
-[project]
-dependencies = [
-    "embedded-bridge",      # receivers (CrashDetector, Router)
-    "platformio",           # test runner base class
-]
+**Runtime (Python):**
+- `embedded-bridge` — CRC-8, crash detection, message routing
 
-[project.optional-dependencies]
-fixtures = [
-    "pytest",               # for reusable fixtures
-]
-```
+**Runtime (C++):**
+- `doctest` — test framework (provided by consumer project)
+- Arduino framework — Serial, GPIO, delay
+
+**Optional:**
+- `platformio` — only needed when used as a PIO test runner plugin.
+  Graceful ImportError fallback allows standalone use.
+- `click` — colored output (falls back to plain print)

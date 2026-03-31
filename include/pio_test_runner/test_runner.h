@@ -51,27 +51,6 @@ inline void signal_done() {
     emit(Serial, "PTR:DONE");
 }
 
-/// Wait for a test command from the host.
-///
-/// Blocks until a non-empty line is received or timeout expires.
-/// Returns empty String on timeout (no runner present — backward compat).
-///
-/// @param timeout_ms  Maximum time to wait (0 = wait forever).
-/// @return Command string: "RUN_ALL", "RUN: <filter>", or "" on timeout.
-inline String wait_for_command(uint32_t timeout_ms = 5000) {
-    uint32_t start = millis();
-    String line;
-    while (timeout_ms == 0 || millis() - start < timeout_ms) {
-        if (Serial.available()) {
-            line = Serial.readStringUntil('\n');
-            line.trim();
-            if (line.length() > 0) return line;
-        }
-        delay(10);
-    }
-    return "";  // timeout — no runner present
-}
-
 // =====================================================================
 // Sleep signalling
 // =====================================================================
@@ -120,10 +99,10 @@ inline void print_mem_after(size_t free_heap, int64_t delta, size_t min_heap) {
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     emit(Serial, "PTR:MEM:AFTER free=%zu delta=%+lld min=%zu largest=%zu",
          free_heap, (long long)delta, min_heap, largest);
-    return;
-#endif
+#else
     emit(Serial, "PTR:MEM:AFTER free=%zu delta=%+lld min=%zu",
          free_heap, (long long)delta, min_heap);
+#endif
 }
 
 /// Print a memory leak warning.
