@@ -54,8 +54,33 @@ PTR_TEST_SUITE="*SensorTests*" pio test -e my_board
 | `--tc` | `PTR_TEST_CASE` | Run only cases matching pattern |
 | `--tse` | `PTR_TEST_SUITE_EXCLUDE` | Exclude suites matching pattern |
 | `--tce` | `PTR_TEST_CASE_EXCLUDE` | Exclude cases matching pattern |
+| `--no-skip` | `PTR_NO_SKIP` | Run all tests including `skip()`-decorated ones |
+| `--unskip-tc` | `PTR_UNSKIP_TEST_CASE` | Clear `skip()` on matching test cases |
+| `--unskip-ts` | `PTR_UNSKIP_TEST_SUITE` | Clear `skip()` on matching test suites |
+| `--skip-tc` | `PTR_SKIP_TEST_CASE` | Force-skip matching test cases |
+| `--skip-ts` | `PTR_SKIP_TEST_SUITE` | Force-skip matching test suites |
 
-Patterns support `*` wildcards (doctest globbing). Filters from `-a` and environment variables are combined.
+Patterns support `*` wildcards (doctest globbing). Filters from `-a` and environment variables are combined. All doctest native flags (`--no-skip`, comma-separated patterns, etc.) are passed through via `applyCommandLine()`.
+
+### Skip control
+
+Tests decorated with `doctest::skip()` are skipped by default. Use `--unskip-tc` to selectively enable specific skipped tests without affecting others:
+
+```bash
+# Run a specific skip-decorated crash test
+PTR_UNSKIP_TEST_CASE="*TWDT*fires*" PTR_TEST_SUITE="*Service/WDT*" \
+    pio test -e my_board
+
+# Force-skip slow tests without modifying source
+PTR_SKIP_TEST_CASE="*stress*" pio test -e my_board
+
+# Unskip via -a flag
+pio test -e my_board -a "--unskip-tc *crash_test*" -a "--ts *WDT*"
+```
+
+The `--unskip-tc`/`--unskip-ts` and `--skip-tc`/`--skip-ts` flags modify the doctest test registry (`m_skip` flag) before the filter chain runs. This means they compose with `--tc`/`--ts` filters: unskip a test, then use `--ts` to restrict which suite runs it in.
+
+Flags are processed left-to-right, so later flags override earlier ones on the same test: `--skip-tc *foo* --unskip-tc *foo*` leaves foo unskipped.
 
 ## Status
 

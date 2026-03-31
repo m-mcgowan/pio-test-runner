@@ -303,19 +303,22 @@ inline void extract_ptr_flags(std::vector<String>& args) {
         {"--skip-ts",   true,  true},
     };
 
-    // Process in multiple passes so all flags are found regardless of position
-    for (auto& pf : ptr_flags) {
-        for (size_t i = 0; i < args.size(); ) {
+    // Process in argument order so later flags override earlier ones.
+    // e.g. --skip-tc *foo* --unskip-tc *foo* → foo ends up unskipped.
+    for (size_t i = 0; i < args.size(); ) {
+        bool matched = false;
+        for (auto& pf : ptr_flags) {
             if (args[i] == pf.flag && i + 1 < args.size()) {
                 const char* pattern = args[i + 1].c_str();
                 int count = modify_skip(pattern, pf.match_suite, pf.skip_value);
                 Serial.printf("Runner %s %s: %d test%s modified\n",
                               pf.flag, pattern, count, count == 1 ? "" : "s");
                 args.erase(args.begin() + i, args.begin() + i + 2);
-            } else {
-                i++;
+                matched = true;
+                break;
             }
         }
+        if (!matched) i++;
     }
 }
 

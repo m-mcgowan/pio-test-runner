@@ -294,6 +294,106 @@ TEST_CASE("force-skip sets m_skip on non-skipped test") {
 
 }  // TEST_SUITE modify_skip
 
+// =========================================================================
+// extract_ptr_flags — argument-order processing
+// =========================================================================
+
+// Replicate extract_ptr_flags for native testing (uses our local String/Serial stubs)
+namespace ptr_doctest {
+
+inline void extract_ptr_flags(std::vector<String>& args) {
+    struct { const char* flag; bool match_suite; bool skip_value; } ptr_flags[] = {
+        {"--unskip-tc", false, false},
+        {"--unskip-ts", true,  false},
+        {"--skip-tc",   false, true},
+        {"--skip-ts",   true,  true},
+    };
+
+    for (size_t i = 0; i < args.size(); ) {
+        bool matched = false;
+        for (auto& pf : ptr_flags) {
+            if (args[i] == pf.flag && i + 1 < args.size()) {
+                const char* pattern = args[i + 1].c_str();
+                modify_skip(pattern, pf.match_suite, pf.skip_value);
+                args.erase(args.begin() + i, args.begin() + i + 2);
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) i++;
+    }
+}
+
+}  // namespace ptr_doctest
+
+// Non-skipped target for ordering tests
+TEST_CASE("_target_ordering" * doctest::skip()) { FAIL("should not run"); }
+
+TEST_SUITE("extract_ptr_flags") {
+
+TEST_CASE("unskip then skip: last flag wins") {
+    // Start: _target_ordering is skipped (decorator)
+    // Apply: --unskip-tc first, then --skip-tc
+    // Expected: skipped (skip-tc is last)
+    auto args = ptr_doctest::tokenize_args("--unskip-tc *_target_ordering* --skip-tc *_target_ordering*");
+    ptr_doctest::extract_ptr_flags(args);
+
+    for (const auto& tc : doctest::detail::getRegisteredTests()) {
+        if (strcmp(tc.m_name, "_target_ordering") == 0) {
+            CHECK(tc.m_skip == true);  // skip was last
+            break;
+        }
+    }
+    // Already in correct state (skipped), no restore needed
+}
+
+TEST_CASE("skip then unskip: last flag wins") {
+    // Apply: --skip-tc first, then --unskip-tc
+    // Expected: unskipped (unskip-tc is last)
+    auto args = ptr_doctest::tokenize_args("--skip-tc *_target_ordering* --unskip-tc *_target_ordering*");
+    ptr_doctest::extract_ptr_flags(args);
+
+    for (const auto& tc : doctest::detail::getRegisteredTests()) {
+        if (strcmp(tc.m_name, "_target_ordering") == 0) {
+            CHECK(tc.m_skip == false);  // unskip was last
+            break;
+        }
+    }
+    // Restore
+    ptr_doctest::modify_skip("*_target_ordering*", false, true);
+}
+
+TEST_CASE("non-ptr flags are preserved in args") {
+    auto args = ptr_doctest::tokenize_args("--unskip-tc *_target_ordering* --tc *foo* --no-skip");
+    ptr_doctest::extract_ptr_flags(args);
+
+    // --unskip-tc + value removed, --tc *foo* and --no-skip remain
+    REQUIRE(args.size() == 3);
+    CHECK(args[0] == "--tc");
+    CHECK(args[1] == "*foo*");
+    CHECK(args[2] == "--no-skip");
+
+    // Restore
+    ptr_doctest::modify_skip("*_target_ordering*", false, true);
+}
+
+TEST_CASE("mixed skip and doctest flags preserve order") {
+    auto args = ptr_doctest::tokenize_args("--ts *Suite* --unskip-tc *_target_ordering* --tce *exclude*");
+    ptr_doctest::extract_ptr_flags(args);
+
+    // Only --unskip-tc removed, doctest flags preserved in order
+    REQUIRE(args.size() == 4);
+    CHECK(args[0] == "--ts");
+    CHECK(args[1] == "*Suite*");
+    CHECK(args[2] == "--tce");
+    CHECK(args[3] == "*exclude*");
+
+    // Restore
+    ptr_doctest::modify_skip("*_target_ordering*", false, true);
+}
+
+}  // TEST_SUITE extract_ptr_flags
+
 int main(int argc, char** argv) {
     doctest::Context context;
     context.setOption("no-skip", false);  // don't run skip targets
