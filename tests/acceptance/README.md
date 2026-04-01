@@ -30,17 +30,35 @@ pytest tests/acceptance/ -v --port $(usb-device port "1.9")
 
 ## Test Coverage
 
+### Serial protocol (direct serial communication)
+
 | Feature | Test file | What's validated |
 |---------|-----------|-----------------|
 | Filtering (`--tc`, `--ts`, `--tce`, `--tse`) | test_filtering.py | Correct tests run/excluded for each filter |
+| Comma-separated patterns | test_filtering.py | `--tc *foo*,*bar*` matches both |
 | Skip control (`--unskip-tc`, `--skip-tc`) | test_filtering.py | Skip-decorated tests enabled/disabled selectively |
 | `--no-skip` | test_filtering.py | All skipped tests run |
 | Skip flag ordering | test_filtering.py | Later flags override earlier on same test |
 | Combined filters | test_filtering.py | Multiple filters compose correctly |
 | Memory tracking | test_protocol_features.py | `PTR:MEM:BEFORE/AFTER` markers parsed |
 | Timing tracking | test_protocol_features.py | `PTR:TEST:START` with suite/name/timeout |
+| Test counts | test_protocol_features.py | `PTR:TESTS total=N skip=N run=N` |
 | Deep sleep | test_sleep.py | Sleep → reconnect → resume → remaining tests |
-| Crash detection | test_crash.py | Backtrace/WDT patterns detected as ERRORED |
+
+### Full pipeline (via `pio test` subprocess)
+
+| Feature | Test file | What's validated |
+|---------|-----------|-----------------|
+| `PTR_TEST_SUITE` env var | test_env_vars.py | Suite filter via env → correct tests run |
+| `PTR_TEST_CASE` env var | test_env_vars.py | Case filter via env |
+| `PTR_TEST_CASE_EXCLUDE` env var | test_env_vars.py | Case exclusion via env |
+| `PTR_TEST_SUITE_EXCLUDE` env var | test_env_vars.py | Suite exclusion via env |
+| `PTR_UNSKIP_TEST_CASE` env var | test_env_vars.py | Selective unskip via env |
+| `PTR_UNSKIP_TEST_SUITE` env var | test_env_vars.py | Suite unskip via env |
+| `PTR_SKIP_TEST_CASE` env var | test_env_vars.py | Force-skip via env |
+| `PTR_NO_SKIP` env var | test_env_vars.py | Global unskip via env |
+| `pio test -a "..."` args | test_env_vars.py | Flags passed through to device |
+| `-a` combined with env vars | test_env_vars.py | Both sources compose correctly |
 
 ## Adding Tests
 
