@@ -132,3 +132,70 @@ class TestBuildInitialCommand:
             cmd = runner._build_initial_command()
         assert "--ts" in cmd
         assert "--unskip-tc" in cmd
+
+
+class TestResumeAfter:
+    """Tests for PTR_RESUME_AFTER env var."""
+
+    def test_resume_after_basic(self):
+        runner = make_runner()
+        with patch.dict(
+            os.environ,
+            {"PTR_RESUME_AFTER": "my test name"},
+            clear=True,
+        ):
+            cmd = runner._build_initial_command()
+        assert cmd == "RESUME_AFTER: my test name"
+
+    def test_resume_after_with_filters(self):
+        """Filters are appended after the resume point."""
+        runner = make_runner()
+        with patch.dict(
+            os.environ,
+            {
+                "PTR_RESUME_AFTER": "some test",
+                "PTR_TEST_SUITE": "*WDT*",
+            },
+            clear=True,
+        ):
+            cmd = runner._build_initial_command()
+        assert cmd.startswith("RESUME_AFTER: some test")
+        assert "--ts *WDT*" in cmd
+
+    def test_resume_after_with_program_args(self):
+        options = MockTestRunnerOptions()
+        options.program_args = ["--tc", "*foo*"]
+        runner = make_runner(options=options)
+        with patch.dict(
+            os.environ,
+            {"PTR_RESUME_AFTER": "previous test"},
+            clear=True,
+        ):
+            cmd = runner._build_initial_command()
+        assert cmd.startswith("RESUME_AFTER: previous test")
+        assert "--tc" in cmd
+        assert "*foo*" in cmd
+
+    def test_resume_after_takes_precedence_over_run(self):
+        """RESUME_AFTER produces a RESUME_AFTER command, not RUN."""
+        runner = make_runner()
+        with patch.dict(
+            os.environ,
+            {
+                "PTR_RESUME_AFTER": "test A",
+                "PTR_TEST_CASE": "*foo*",
+            },
+            clear=True,
+        ):
+            cmd = runner._build_initial_command()
+        assert cmd.startswith("RESUME_AFTER:")
+        assert not cmd.startswith("RUN:")
+
+    def test_no_resume_after_returns_normal(self):
+        """Without PTR_RESUME_AFTER, normal RUN command is built."""
+        runner = make_runner()
+        with patch.dict(
+            os.environ, {"PTR_TEST_CASE": "*foo*"}, clear=True
+        ):
+            cmd = runner._build_initial_command()
+        assert cmd.startswith("RUN: ")

@@ -233,6 +233,11 @@ class EmbeddedTestRunner(_BaseRunner):
         Returns "RUN_ALL" if no filters specified, otherwise
         "RUN: --tc ... --ts ..." etc.
         """
+        # Resume from a specific test — skip all tests up to and including
+        # the named test, then run the rest. Useful for resuming after a
+        # failure without re-running already-passed tests.
+        resume_after = os.environ.get("PTR_RESUME_AFTER", "").strip()
+
         filters = []
 
         # Source 1: program args from pio test -a "..."
@@ -266,6 +271,15 @@ class EmbeddedTestRunner(_BaseRunner):
                     filters.append(f'{flag} "{value}"')
                 else:
                     filters.append(f"{flag} {value}")
+
+        # RESUME_AFTER: skip tests up to and including the named test.
+        # Additional filters (--tc, --ts, etc.) are appended so they
+        # apply to the remaining tests after the resume point.
+        if resume_after:
+            suffix = f" {' '.join(filters)}" if filters else ""
+            command = f"RESUME_AFTER: {resume_after}{suffix}"
+            _echo(f"[runner] Resume: {command}")
+            return command
 
         if not filters:
             return "RUN_ALL"

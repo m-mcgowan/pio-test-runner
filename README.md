@@ -124,6 +124,7 @@ void loop()  { DOCTEST_LOOP(); }
 | Variable | Values | Default | Description |
 |----------|--------|---------|-------------|
 | `PTR_POST_TEST` | `sleep`, `lightsleep`, `restart`, `wait`, `none` | `sleep` | Command sent after tests complete. `sleep` = deep sleep (saves battery, port disappears). `lightsleep` = light sleep (low power, port stays alive). `restart` = reboot (immediately available). `wait` = idle loop (fully active). `none` = close without command. |
+| `PTR_RESUME_AFTER` | test name | none | Skip all tests up to and including the named test, then run the rest. Useful for resuming after a failure. Combines with filters (`PTR_TEST_SUITE`, etc.) which apply to the remaining tests. |
 
 ## Status
 
