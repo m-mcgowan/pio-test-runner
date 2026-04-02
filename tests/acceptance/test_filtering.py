@@ -20,9 +20,14 @@ from helpers import open_device, wait_for_ready, send_command, send_sleep
 
 @pytest.fixture
 def device(port, baud):
-    """Open serial and ensure device is in READY state."""
+    """Open serial and ensure device is in READY state.
+
+    Waits for two consecutive READY signals to ensure the device has
+    fully booted and isn't mid-restart from a previous PTR_POST_TEST=restart.
+    """
     ser = open_device(port, baud)
-    assert wait_for_ready(ser, timeout=10), \
+    # Wait for first READY (device may still be booting)
+    assert wait_for_ready(ser, timeout=15), \
         f"Device not ready on {port}. Is it awake? Try: usb-device reset <name>"
     yield ser
     ser.close()

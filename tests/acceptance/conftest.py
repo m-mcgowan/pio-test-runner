@@ -1,6 +1,5 @@
 """Acceptance test fixtures for on-device filter validation."""
 
-import subprocess
 import time
 
 import pytest
@@ -23,24 +22,21 @@ def baud(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def ensure_device_awake(port):
-    """Ensure device is awake at the start of the test session.
+    """Wait for device port to be available.
 
-    After pio test runs, the device enters deep sleep (SLEEP command).
-    This fixture tries to open the port and, if the device is sleeping,
-    resets it via usb-device.
+    After PTR_POST_TEST=restart, the USB-CDC port drops briefly during
+    reboot. Wait for it to become openable. Don't read serial data —
+    leave PTR:READY for send_command() to consume.
     """
-    import serial as pyserial
+    from helpers import open_device
 
-    try:
-        ser = pyserial.Serial(port, 115200, timeout=2)
-        line = ser.readline().decode("utf-8", errors="replace")
-        ser.close()
-        if "PTR:READY" in line:
-            return  # Already awake
-    except Exception:
-        pass
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        try:
+            ser = open_device(port, retries=1)
+            ser.close()
+            return
+        except Exception:
+            time.sleep(1)
 
-    # Device likely sleeping or port gone — try reset
-    print(f"[accept] Device not responding on {port}, attempting reset...")
-    subprocess.run(["usb-device", "reset", port], capture_output=True, timeout=10)
-    time.sleep(5)
+    print(f"[accept] WARNING: Port {port} not available after 15s")

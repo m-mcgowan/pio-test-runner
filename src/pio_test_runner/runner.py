@@ -629,41 +629,25 @@ class EmbeddedTestRunner(_BaseRunner):
     def _open_serial(self, reset=True):
         """Open serial connection to the device.
 
-        Mirrors PlatformIO device monitor's serial setup: do_not_open=True,
-        only set DTR/RTS if explicitly requested (reset=True), then open().
-        When reset=False (reconnect after restart/sleep), DTR/RTS are not
-        touched — this avoids triggering USB_UART_CHIP_RESET on ESP32-S3.
+        Uses open_serial() for safe DTR/RTS handling. When reset=False
+        (reconnect after restart/sleep), DTR/RTS are not touched — this
+        avoids triggering USB_UART_CHIP_RESET on ESP32-S3.
         """
         if self._ser and self._ser.is_open:
             return  # Already connected
-        if serial is None:
-            raise RuntimeError("pyserial not installed")
+
+        from .serial_port import open_serial
+
         port = self._resolve_port()
         self._port_path = port
-        self._ser = serial.serial_for_url(
+        should_reset = reset and not self.options.no_reset
+        self._ser = open_serial(
             port,
-            do_not_open=True,
             baudrate=self.get_test_speed(),
-            timeout=1,
+            reset=should_reset,
+            retries=1,
         )
-
-        if reset and not self.options.no_reset:
-            # Pre-set DTR/RTS before open for reset sequence
-            self._ser.rts = self.options.monitor_rts
-            self._ser.dtr = self.options.monitor_dtr
-
-        self._ser.open()
-
-        if reset and not self.options.no_reset:
-            self._ser.flushInput()
-            self._ser.setDTR(False)
-            self._ser.setRTS(False)
-            time.sleep(0.1)
-            self._ser.setDTR(True)
-            self._ser.setRTS(True)
-            time.sleep(0.1)
-
-        # Flush any garbage from DTR assertion on macOS
+        # Flush any garbage from serial open on macOS
         self._ser.write(b"\n")
 
     def _restart_device(self):

@@ -6,25 +6,12 @@ import time
 import serial as pyserial
 
 from pio_test_runner.protocol import format_crc
+from pio_test_runner.serial_port import open_serial
 
 
 def open_device(port, baud=115200, retries=10):
-    """Open serial connection and drain stale data.
-
-    Retries on failure — ESP32-S3 USB-CDC ports can take several seconds
-    to re-enumerate after a device restart (esp_restart drops USB briefly).
-    """
-    for attempt in range(retries):
-        try:
-            ser = pyserial.Serial(port, baud, timeout=1)
-            # Verify port is actually usable (not just openable)
-            ser.reset_input_buffer()
-            return ser
-        except (OSError, pyserial.SerialException):
-            if attempt < retries - 1:
-                time.sleep(1)
-            else:
-                raise
+    """Open serial connection without triggering a device reset."""
+    return open_serial(port, baudrate=baud, retries=retries)
 
 
 def wait_for_ready(ser, timeout=15):
