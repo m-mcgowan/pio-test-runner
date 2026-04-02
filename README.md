@@ -115,6 +115,15 @@ void loop()  { DOCTEST_LOOP(); }
 | `PTR_CONFIGURE_CONTEXT` | `void fn(doctest::Context&)` | none | Configure doctest context before each cycle. |
 | `PTR_AFTER_CYCLE` | `void fn()` | none | Called after each test cycle completes. |
 | `PTR_READY_TIMEOUT_MS` | `uint32_t` | `0` (forever) | Max time to wait for host runner. Set to e.g. `30000` for standalone operation without a host. |
+| `PTR_PLATFORM_RESTART` | `void fn()` | `esp_restart()` | Platform-specific restart. |
+| `PTR_PLATFORM_SLEEP` | `void fn()` | `esp_deep_sleep_start()` | Platform-specific deep sleep. |
+| `PTR_PLATFORM_LIGHTSLEEP` | `void fn()` | `esp_light_sleep_start()` | Platform-specific light sleep (should return on wake). |
+
+### Host-side environment variables
+
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `PTR_POST_TEST` | `sleep`, `lightsleep`, `restart`, `wait`, `none` | `sleep` | Command sent after tests complete. `sleep` = deep sleep (saves battery, port disappears). `lightsleep` = light sleep (low power, port stays alive). `restart` = reboot (immediately available). `wait` = idle loop (fully active). `none` = close without command. |
 
 ## Status
 

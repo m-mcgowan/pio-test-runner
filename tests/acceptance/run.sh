@@ -42,7 +42,17 @@ fi
 # Install dependencies
 "$VENV_DIR/bin/pip" install -q -e "$REPO_DIR[dev]" pyserial
 
-# Run tests
-"$VENV_DIR/bin/python" -m pytest "$SCRIPT_DIR/test_filtering.py" \
+# Ensure integration firmware is flashed and device stays awake after.
+# PTR_POST_TEST=restart prevents deep sleep so acceptance tests can connect.
+echo "Uploading integration firmware..."
+PTR_POST_TEST=restart pio test -e esp32s3 \
+    --upload-port "$PORT" --test-port "$PORT" \
+    -d "$SCRIPT_DIR/../integration" \
+    2>&1 | tail -3
+echo ""
+
+# Run acceptance tests
+"$VENV_DIR/bin/python" -m pytest "$SCRIPT_DIR" \
     --port "$PORT" \
+    --ignore="$SCRIPT_DIR/test_sleep.py" \
     -v "$@"

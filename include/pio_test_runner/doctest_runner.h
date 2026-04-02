@@ -650,16 +650,34 @@ inline void idle_loop() {
             Serial.println("[PTR] Restarting...");
             Serial.flush();
             delay(100);
-#if defined(ESP_IDF_VERSION)
+#ifdef PTR_PLATFORM_RESTART
+            PTR_PLATFORM_RESTART();
+#elif defined(ESP_IDF_VERSION)
             esp_restart();
 #endif
         } else if (command == "SLEEP") {
             Serial.println("[PTR] Entering deep sleep...");
             Serial.flush();
             delay(100);
-#if defined(ESP_IDF_VERSION)
+#ifdef PTR_PLATFORM_SLEEP
+            PTR_PLATFORM_SLEEP();
+#elif defined(ESP_IDF_VERSION)
             esp_deep_sleep_start();
 #endif
+        } else if (command == "LIGHTSLEEP") {
+            Serial.println("[PTR] Entering light sleep...");
+            Serial.flush();
+            delay(100);
+#ifdef PTR_PLATFORM_LIGHTSLEEP
+            PTR_PLATFORM_LIGHTSLEEP();
+            Serial.println("[PTR] Woke from light sleep");
+#elif defined(ESP_IDF_VERSION)
+            esp_sleep_enable_uart_wakeup(0);
+            esp_light_sleep_start();
+            Serial.println("[PTR] Woke from light sleep");
+#endif
+        } else if (command == "WAIT") {
+            Serial.println("[PTR] Waiting (idle, no sleep)...");
         } else {
             // LIST, RUN:, or other commands
             run_cycle(command);

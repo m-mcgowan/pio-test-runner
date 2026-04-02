@@ -6,27 +6,29 @@ full READY/RUN/DONE protocol round-trip.
 
 ## Prerequisites
 
-1. **Flash the integration firmware** (once, or after firmware changes):
-
-```bash
-cd tests/integration
-pio run -e esp32s3 -t upload --upload-port $(usb-device port "1.9")
-```
-
-2. **Device connected** — pass the device name or port.
+1. **Device connected** — pass the device name or port.
 
 ## Running
 
 ```bash
-# Via the run script (creates venv, installs deps):
+# Via the run script (flashes firmware, creates venv, runs tests):
 tests/acceptance/run.sh "1.9"
 
 # Filter to specific tests:
 tests/acceptance/run.sh "1.9" -k "unskip"
 
-# Direct pytest (if deps already installed):
-pytest tests/acceptance/ -v --port $(usb-device port "1.9")
+# Manual: flash with PTR_POST_TEST=restart so device stays awake:
+PORT=$(usb-device port "1.9")
+PTR_POST_TEST=restart pio test -e esp32s3 \
+    --upload-port $PORT --test-port $PORT \
+    -d tests/integration
+pytest tests/acceptance/ -v --port $PORT --ignore=tests/acceptance/test_sleep.py
 ```
+
+**Important:** Use `PTR_POST_TEST=restart` when flashing. The default
+`SLEEP` puts the device into deep sleep after tests, making the port
+disappear. `restart` reboots the device so it's immediately available
+for acceptance tests.
 
 ## Test Coverage
 

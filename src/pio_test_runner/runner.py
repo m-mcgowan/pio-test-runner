@@ -450,13 +450,31 @@ class EmbeddedTestRunner(_BaseRunner):
                     _echo("[runner] PTR:DONE received")
                     break
 
-        # Send SLEEP to put the device into deep sleep (prevents battery
-        # drain and unintended test re-runs from USB reset).
-        if self._ser and self._ser.is_open:
+        # Post-test device command: SLEEP (default), LIGHTSLEEP, RESTART,
+        # WAIT, or NONE.
+        #
+        # SLEEP:      deep sleep (saves battery, USB-CDC port disappears)
+        # LIGHTSLEEP: light sleep (low power, USB-CDC stays alive, wakes on serial)
+        # RESTART:    reboot (device immediately available for more tests)
+        # WAIT:       idle loop (fully active, no sleep)
+        # NONE:       close serial without sending a command
+        #
+        # Set PTR_POST_TEST=restart for acceptance test workflows.
+        post_test = os.environ.get("PTR_POST_TEST", "sleep").lower()
+        if post_test == "none":
+            _echo("[runner] PTR_POST_TEST=none — closing without command")
+        elif self._ser and self._ser.is_open:
+            cmd_map = {
+                "sleep": "SLEEP",
+                "lightsleep": "LIGHTSLEEP",
+                "restart": "RESTART",
+                "wait": "WAIT",
+            }
+            cmd = cmd_map.get(post_test, "SLEEP")
             try:
-                self._ser.write(b"SLEEP\n")
+                self._ser.write(f"{cmd}\n".encode())
                 self._ser.flush()
-                _echo("[runner] SLEEP sent")
+                _echo(f"[runner] {cmd} sent")
                 # Give firmware time to read the command before closing serial.
                 # Closing USB-CDC can trigger an ESP32-S3 reset.
                 time.sleep(1)
