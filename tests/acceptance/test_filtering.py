@@ -15,12 +15,35 @@ Prerequisites:
 
 import pytest
 
-from helpers import open_device, send_command, send_sleep
+from helpers import open_device, wait_for_ready, send_command, send_sleep
 
 
 @pytest.fixture
 def device(port, baud):
+    """Open serial and ensure device is in READY state.
+
+    If the device is sleeping or unresponsive, power-cycle via usb-device
+    reset and retry.
+    """
+    import subprocess
+    import time
+
+    try:
+        ser = open_device(port, baud)
+        if wait_for_ready(ser, timeout=5):
+            yield ser
+            ser.close()
+            return
+        ser.close()
+    except Exception:
+        pass
+
+    # Device not responding — try USB reset
+    subprocess.run(["usb-device", "reset", port], capture_output=True, timeout=10)
+    time.sleep(3)
+
     ser = open_device(port, baud)
+    assert wait_for_ready(ser, timeout=15), "Device not ready after reset"
     yield ser
     ser.close()
 

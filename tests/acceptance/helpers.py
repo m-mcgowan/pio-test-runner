@@ -8,11 +8,22 @@ import serial as pyserial
 from pio_test_runner.protocol import format_crc
 
 
-def open_device(port, baud=115200):
-    """Open serial connection and drain stale data."""
-    ser = pyserial.Serial(port, baud, timeout=1)
-    ser.reset_input_buffer()
-    return ser
+def open_device(port, baud=115200, retries=5):
+    """Open serial connection and drain stale data.
+
+    Retries on failure — USB-CDC ports can take several seconds to
+    re-enumerate after a device reset.
+    """
+    for attempt in range(retries):
+        try:
+            ser = pyserial.Serial(port, baud, timeout=1)
+            ser.reset_input_buffer()
+            return ser
+        except (OSError, pyserial.SerialException):
+            if attempt < retries - 1:
+                time.sleep(2)
+            else:
+                raise
 
 
 def wait_for_ready(ser, timeout=15):
