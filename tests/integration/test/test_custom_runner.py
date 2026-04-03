@@ -1,22 +1,31 @@
-"""PlatformIO custom test runner — uses pio-test-runner for orchestration.
+"""PlatformIO custom test runner — bootstraps pio-test-runner.
 
-Auto-adds the pio-test-runner and embedded-bridge source directories to
-sys.path so the imports work without pip install.
+This file is the only one consuming projects need to copy. It finds the
+library's Python source via PIO's libdeps directory (supports symlinks)
+and delegates everything to EmbeddedTestRunner.
+
+Customize test behavior via weak C++ functions in separate .cpp files:
+    bool ptr_board_init(Print& log)
+    void ptr_after_cycle()
+    void ptr_configure_context(doctest::Context&)
 """
 
 import os
 import sys
+import glob
 
-# Add source dirs to path so imports resolve without pip install
-_here = os.path.dirname(os.path.abspath(__file__))
-_repo = os.path.normpath(os.path.join(_here, "..", "..", ".."))
-_bridge = os.path.normpath(os.path.join(_repo, "..", "embedded-bridge", "python", "src"))
+# Find pio-test-runner and embedded-bridge Python sources in libdeps
+_test_dir = os.path.dirname(os.path.abspath(__file__))
+_project_dir = os.path.normpath(os.path.join(_test_dir, ".."))
+for pattern in [
+    os.path.join(_project_dir, ".pio", "libdeps", "*", "pio-test-runner", "src"),
+    os.path.join(_project_dir, ".pio", "libdeps", "*", "embedded-bridge", "python", "src"),
+]:
+    for p in glob.glob(pattern):
+        if p not in sys.path:
+            sys.path.insert(0, p)
 
-for p in [os.path.join(_repo, "src"), _bridge]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
-from pio_test_runner import EmbeddedTestRunner
+from pio_test_runner.runner import EmbeddedTestRunner  # noqa: E402
 
 
 class CustomTestRunner(EmbeddedTestRunner):
