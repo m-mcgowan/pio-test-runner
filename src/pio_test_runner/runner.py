@@ -244,8 +244,21 @@ class EmbeddedTestRunner(_BaseRunner):
         program_args = getattr(self.options, "program_args", None)
         if program_args:
             # program_args is a list of strings, e.g. ["--ts", "*BHI385*"]
-            # Pass them through directly — the firmware parser handles them.
-            filters.extend(program_args)
+            # Quote values containing spaces so the firmware tokenizer
+            # doesn't split them (matching env var path behavior).
+            i = 0
+            while i < len(program_args):
+                arg = program_args[i]
+                if arg.startswith("--") and i + 1 < len(program_args) and not program_args[i + 1].startswith("--"):
+                    value = program_args[i + 1]
+                    if " " in value:
+                        filters.append(f'{arg} "{value}"')
+                    else:
+                        filters.append(f"{arg} {value}")
+                    i += 2
+                else:
+                    filters.append(arg)
+                    i += 1
 
         # Source 2: environment variables
         env_map = {

@@ -133,6 +133,32 @@ class TestBuildInitialCommand:
         assert "--ts" in cmd
         assert "--unskip-tc" in cmd
 
+    def test_program_args_with_spaces_are_quoted(self):
+        """Program args with spaces must be quoted for firmware tokenizer."""
+        options = MockTestRunnerOptions()
+        options.program_args = ["--ts", "My Suite Name"]
+        runner = make_runner(options=options)
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = runner._build_initial_command()
+        assert cmd == 'RUN: --ts "My Suite Name"'
+
+    def test_program_args_exclusion_with_spaces_quoted(self):
+        options = MockTestRunnerOptions()
+        options.program_args = ["--tse", "Slow Tests"]
+        runner = make_runner(options=options)
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = runner._build_initial_command()
+        assert cmd == 'RUN: --tse "Slow Tests"'
+
+    def test_program_args_without_spaces_not_quoted(self):
+        options = MockTestRunnerOptions()
+        options.program_args = ["--ts", "*Proto*"]
+        runner = make_runner(options=options)
+        with patch.dict(os.environ, {}, clear=True):
+            cmd = runner._build_initial_command()
+        assert cmd == "RUN: --ts *Proto*"
+        assert '"' not in cmd
+
 
 class TestResumeAfter:
     """Tests for PTR_RESUME_AFTER env var."""
