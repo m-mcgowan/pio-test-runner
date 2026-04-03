@@ -22,23 +22,24 @@
  * @endcode
  *
  * For project-specific initialization (board setup, storage, etc.),
- * provide callbacks before including this header:
+ * set callbacks on ptr_doctest::config before DOCTEST_SETUP():
  * @code
  *   #define DOCTEST_CONFIG_IMPLEMENT
  *   #include <doctest.h>
+ *   #include <pio_test_runner/doctest_runner.h>
  *
- *   // Optional: called after Serial.begin(), before doctest runs
  *   static bool my_board_init(Print& log) {
  *       // board pin setup, storage mount, etc.
  *       return true;  // false halts
  *   }
+ *   static void my_cleanup() { gcov_serial_dump(); }
  *
- *   #define PTR_BOARD_INIT my_board_init
- *   #define PTR_READY_TIMEOUT_MS 30000  // Optional: wait up to 30s for host
- *   #include <pio_test_runner/doctest_runner.h>
- *
- *   void setup() { DOCTEST_SETUP(); }
- *   void loop()  { DOCTEST_LOOP(); }
+ *   void setup() {
+ *       ptr_doctest::config.board_init = my_board_init;
+ *       ptr_doctest::config.after_cycle = my_cleanup;
+ *       DOCTEST_SETUP();
+ *   }
+ *   void loop() { DOCTEST_LOOP(); }
  * @endcode
  */
 
@@ -120,6 +121,65 @@ REGISTER_LISTENER("ptr_test_listener", 1, PtrTestListener);
 // =========================================================================
 
 namespace ptr_doctest {
+
+// =========================================================================
+// Runtime configuration (replaces #define-before-include macros)
+// =========================================================================
+
+/**
+ * @brief Runtime configuration for the doctest test runner.
+ *
+ * Replaces the fragile ``#define PTR_*`` macro pattern. Macros defined
+ * before including this header are silently ignored by the compiler when
+ * PlatformIO compiles the library separately (COMDAT folding keeps the
+ * library's version of inline functions, not the test's).
+ *
+ * Usage:
+ * @code
+ *   #define DOCTEST_CONFIG_IMPLEMENT
+ *   #include <doctest.h>
+ *   #include <pio_test_runner/doctest_runner.h>
+ *
+ *   static bool my_init(Print& log) { return true; }
+ *   static void my_cleanup() { gcov_serial_dump(); }
+ *
+ *   void setup() {
+ *       ptr_doctest::config.board_init = my_init;
+ *       ptr_doctest::config.after_cycle = my_cleanup;
+ *       DOCTEST_SETUP();
+ *   }
+ *   void loop() { DOCTEST_LOOP(); }
+ * @endcode
+ */
+struct Config {
+    /// Called after Serial.begin(), before tests run.
+    /// Return false to halt (e.g. board detection failure).
+    bool (*board_init)(Print& log) = nullptr;
+
+    /// Called after all filters applied, before context.run().
+    /// Use for runtime-derived excludes (e.g. firmware version gating).
+    void (*configure_context)(doctest::Context& ctx) = nullptr;
+
+    /// Called after each test cycle completes (after PTR:DONE).
+    /// Use for coverage dumps, cleanup, etc.
+    void (*after_cycle)() = nullptr;
+
+    /// Platform-specific restart. Default: esp_restart() on ESP-IDF.
+    void (*platform_restart)() = nullptr;
+
+    /// Platform-specific deep sleep. Default: esp_deep_sleep_start() on ESP-IDF.
+    void (*platform_sleep)() = nullptr;
+
+    /// Platform-specific light sleep. Default: esp_light_sleep_start() on ESP-IDF.
+    void (*platform_lightsleep)() = nullptr;
+
+    /// How long to wait for the host runner before running standalone.
+    /// 0 = wait forever (default).
+    uint32_t ready_timeout_ms = 0;
+};
+
+/// Global configuration. Set fields before calling DOCTEST_SETUP().
+inline Config& config = *[]() { static Config c; return &c; }();
 
 static bool tests_complete = false;
 
@@ -554,12 +614,9 @@ inline void run_cycle(const String& command) {
 
     auto cmd = apply_runner_command(context, command);
 
-    // Project-specific context configuration hook.
-    // Called after all filters are applied, before tests run.
-    // Use for runtime-derived excludes (e.g. firmware version gating).
-#ifdef PTR_CONFIGURE_CONTEXT
-    PTR_CONFIGURE_CONTEXT(context);
-#endif
+    if (config.configure_context) {
+        config.configure_context(context);
+    }
 
     if (cmd.should_run) {
         unsigned total = static_cast<unsigned>(get_test_names().size());
@@ -574,10 +631,9 @@ inline void run_cycle(const String& command) {
         }
     }
 
-    // Hook for post-cycle actions (e.g. coverage dump)
-#ifdef PTR_AFTER_CYCLE
-    PTR_AFTER_CYCLE();
-#endif
+    if (config.after_cycle) {
+        config.after_cycle();
+    }
 
     pio_test_runner::signal_done();
 }
@@ -589,9 +645,7 @@ inline void run_cycle(const String& command) {
  * READY/RUN/DONE cycle. After completion, idle_loop() accepts
  * additional commands for RESUME_AFTER cycles.
  *
- * @note Define PTR_BOARD_INIT as a function with signature
- *       ``bool init(Print& log)`` for project-specific initialization.
- *       Return false to halt (e.g. board detection failure).
+ * Set callbacks on ptr_doctest::config before calling this.
  */
 inline void run_tests() {
     Serial.begin(115200);
@@ -603,21 +657,14 @@ inline void run_tests() {
     delay(4000);
 #endif
 
-    // Project-specific initialization
-#ifdef PTR_BOARD_INIT
-    if (!PTR_BOARD_INIT(Serial)) {
-        Serial.println("FATAL: Board init failed - halting tests");
-        while (true) { delay(1000); }
+    if (config.board_init) {
+        if (!config.board_init(Serial)) {
+            Serial.println("FATAL: Board init failed - halting tests");
+            while (true) { delay(1000); }
+        }
     }
-#endif
 
-#ifdef PTR_READY_TIMEOUT_MS
-    constexpr uint32_t TIMEOUT_MS = PTR_READY_TIMEOUT_MS;
-#else
-    constexpr uint32_t TIMEOUT_MS = 0;  // Wait forever for runner
-#endif
-
-    String command = wait_for_command(TIMEOUT_MS);
+    String command = wait_for_command(config.ready_timeout_ms);
     run_cycle(command);
     tests_complete = true;
 }
@@ -650,32 +697,36 @@ inline void idle_loop() {
             Serial.println("[PTR] Restarting...");
             Serial.flush();
             delay(100);
-#ifdef PTR_PLATFORM_RESTART
-            PTR_PLATFORM_RESTART();
-#elif defined(ESP_IDF_VERSION)
-            esp_restart();
+            if (config.platform_restart) {
+                config.platform_restart();
+            }
+#if defined(ESP_IDF_VERSION)
+            else { esp_restart(); }
 #endif
         } else if (command == "SLEEP") {
             Serial.println("[PTR] Entering deep sleep...");
             Serial.flush();
             delay(100);
-#ifdef PTR_PLATFORM_SLEEP
-            PTR_PLATFORM_SLEEP();
-#elif defined(ESP_IDF_VERSION)
-            esp_deep_sleep_start();
+            if (config.platform_sleep) {
+                config.platform_sleep();
+            }
+#if defined(ESP_IDF_VERSION)
+            else { esp_deep_sleep_start(); }
 #endif
         } else if (command == "LIGHTSLEEP") {
             Serial.println("[PTR] Entering light sleep...");
             Serial.flush();
             delay(100);
-#ifdef PTR_PLATFORM_LIGHTSLEEP
-            PTR_PLATFORM_LIGHTSLEEP();
-            Serial.println("[PTR] Woke from light sleep");
-#elif defined(ESP_IDF_VERSION)
-            esp_sleep_enable_uart_wakeup(0);
-            esp_light_sleep_start();
-            Serial.println("[PTR] Woke from light sleep");
+            if (config.platform_lightsleep) {
+                config.platform_lightsleep();
+            }
+#if defined(ESP_IDF_VERSION)
+            else {
+                esp_sleep_enable_uart_wakeup(0);
+                esp_light_sleep_start();
+            }
 #endif
+            Serial.println("[PTR] Woke from light sleep");
         } else if (command == "WAIT") {
             Serial.println("[PTR] Waiting (idle, no sleep)...");
         } else {
