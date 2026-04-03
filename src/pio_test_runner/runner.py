@@ -356,12 +356,11 @@ class EmbeddedTestRunner(_BaseRunner):
 
                 self._handle_sleep_resume()
 
-                # After resume, run remaining tests starting after the
-                # sleep test. The device does a listing pass to discover
-                # test order and builds its own exclude list.
+                # After Phase 2, send RESUME_AFTER directly — the device
+                # is in idle_loop waiting for commands (no restart needed).
+                # The host stays in control of when restarts/sleeps happen.
                 if self.protocol.state != ProtocolState.SLEEPING and sleep_test:
                     _echo(f"[runner] Running remaining tests after: {sleep_test}")
-                    self._restart_device()
                     resume_cmd = f"RESUME_AFTER: {sleep_test}"
                     if self._initial_filters:
                         resume_cmd += f" {self._initial_filters}"
@@ -385,7 +384,7 @@ class EmbeddedTestRunner(_BaseRunner):
             if not self.test_suite.is_finished():
                 self.test_suite.on_finish()
 
-    def _run_test_cycle(self, command, reset=True):
+    def _run_test_cycle(self, command, reset=True, skip_post_test=False):
         """Run one test cycle: open serial, wait for READY, send command, process."""
         self.protocol.reset()
         self._line_buf = ""
@@ -486,7 +485,14 @@ class EmbeddedTestRunner(_BaseRunner):
         # WAIT:       idle loop (fully active, no sleep)
         # NONE:       close serial without sending a command
         #
+        # Skipped for intermediate cycles (e.g. Phase 2 of sleep) — the
+        # host stays in control and sends RESUME_AFTER directly.
+        #
         # Set PTR_POST_TEST=restart for acceptance test workflows.
+        if skip_post_test:
+            _echo("[runner] Intermediate cycle — skipping post-test command")
+            self._close_serial()
+            return
         post_test = os.environ.get("PTR_POST_TEST", "sleep").lower()
         if post_test == "none":
             _echo("[runner] PTR_POST_TEST=none — closing without command")
@@ -606,7 +612,10 @@ class EmbeddedTestRunner(_BaseRunner):
 
         self.protocol.reset_for_wake()
         try:
-            self._run_test_cycle(command=filter_cmd, reset=False)
+            # skip_post_test: don't send SLEEP/RESTART after Phase 2.
+            # The host stays in control — it will send RESUME_AFTER
+            # directly through the device's idle_loop.
+            self._run_test_cycle(command=filter_cmd, reset=False, skip_post_test=True)
         except Exception as exc:
             if serial is not None and isinstance(exc, serial.SerialException):
                 _echo("[runner] Port not ready, waiting 5s more...")

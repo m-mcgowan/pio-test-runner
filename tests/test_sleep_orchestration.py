@@ -8,6 +8,9 @@ correctly orchestrates the multi-phase sleep cycle:
   Phase 2: RUN: *sleeping_test* -> sleeping test Phase 2 -> PTR:DONE
   Phase 3: RESUME_AFTER: sleeping_test -> remaining tests -> PTR:DONE
 
+After Phase 2, the runner sends RESUME_AFTER directly through the
+device's idle_loop — no restart needed. The host stays in control.
+
 Each test documents the exact protocol exchange between host and device.
 """
 
@@ -158,19 +161,16 @@ class TestSingleSleepCycle:
         Runner: RUN_ALL
         Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
         Device: PTR:SLEEP ms=3000
-        Runner: (closes serial)
+        Runner: (closes serial, no post-test command)
 
       Phase 2 (after wake):
         Device: PTR:READY
         Runner: RUN: *sleep test*
         Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
         Device: PTR:DONE
+        Runner: (closes serial, no post-test command — intermediate cycle)
 
-      Restart (between Phase 2 and Phase 3):
-        Runner: RESTART command
-        Device: (reboots)
-
-      Phase 3 (remaining tests via RESUME_AFTER):
+      Phase 3 (remaining tests via RESUME_AFTER, no restart needed):
         Device: PTR:READY
         Runner: RESUME_AFTER: sleep test
         Device: PTR:DONE  (no remaining tests)
@@ -193,11 +193,7 @@ class TestSingleSleepCycle:
             _crc("PTR:DONE"),
         ])
 
-        # Phase 2.5: _restart_device opens serial briefly to send RESTART.
-        # FastClock makes its read deadline expire immediately.
-        mock_ser.add_phase([])
-
-        # Phase 3: RESUME_AFTER -> device says no remaining tests -> done
+        # Phase 3: RESUME_AFTER directly (no restart) -> no remaining -> done
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc("PTR:DONE"),
@@ -215,9 +211,6 @@ class TestSingleSleepCycle:
             runner._port_path = "/dev/mock"
             open_count += 1
 
-        # FastClock advances by 100s per call. This makes time.time()
-        # deadlines expire immediately (drain loop, hang detection) while
-        # time.monotonic() stays at 0 (sleep monitor loops use monotonic).
         fast_time = FastClock(start=1000.0, step=100.0)
 
         with patch.object(runner, "configure_orchestrated", return_value=True), \
@@ -233,13 +226,16 @@ class TestSingleSleepCycle:
 
         assert runner.protocol.state == ProtocolState.FINISHED
 
-        # Verify the three-phase command sequence
+        # Verify the three-phase command sequence (no RESTART)
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "sleep test" in c for c in cmds), \
             f"Expected RUN: *sleep test* in {cmds}"
         assert any("RESUME_AFTER" in c and "sleep test" in c for c in cmds), \
             f"Expected RESUME_AFTER: sleep test in {cmds}"
+        # No RESTART between Phase 2 and RESUME_AFTER
+        assert not any("RESTART" in c for c in cmds), \
+            f"Expected no RESTART in {cmds}"
 
 
 class TestSleepWithResumeAfter:
@@ -259,12 +255,9 @@ class TestSleepWithResumeAfter:
         Runner: RUN: *sleep test*
         Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
         Device: PTR:DONE
+        Runner: (closes serial, intermediate cycle)
 
-      Restart:
-        Runner: RESTART command
-        Device: (reboots)
-
-      Phase 3 (RESUME_AFTER with remaining tests):
+      Phase 3 (RESUME_AFTER directly, no restart):
         Device: PTR:READY
         Runner: RESUME_AFTER: sleep test
         Device: PTR:TEST:START suite="Other" name="normal test"
@@ -288,11 +281,7 @@ class TestSleepWithResumeAfter:
             _crc("PTR:DONE"),
         ])
 
-        # Phase 2.5: _restart_device opens serial briefly to send RESTART.
-        # FastClock makes its read deadline expire immediately.
-        mock_ser.add_phase([])
-
-        # Phase 3: RESUME_AFTER -> device runs remaining tests -> done
+        # Phase 3: RESUME_AFTER directly -> remaining tests -> done
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc('PTR:TEST:START suite="Other" name="normal test"'),
@@ -326,16 +315,16 @@ class TestSleepWithResumeAfter:
 
         assert runner.protocol.state == ProtocolState.FINISHED
 
-        # Verify the three-phase command sequence
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "sleep test" in c for c in cmds), \
             f"Expected RUN: *sleep test* in {cmds}"
         assert any("RESUME_AFTER" in c and "sleep test" in c for c in cmds), \
             f"Expected RESUME_AFTER: sleep test in {cmds}"
+        assert not any("RESTART" in c for c in cmds), \
+            f"Expected no RESTART in {cmds}"
 
         # Verify the "normal test" actually ran in Phase 3
-        # The protocol tracks all TEST:START names across cycles
         assert "normal test" in runner.protocol.completed_tests, \
             f"Expected 'normal test' in completed_tests: {runner.protocol.completed_tests}"
 
@@ -345,33 +334,31 @@ class TestTwoConsecutiveSleepTests:
 
     Protocol exchange:
 
-      Phase 1: RUN_ALL → test_a sleeps
+      Phase 1: RUN_ALL -> test_a sleeps
         Device: PTR:READY
         Runner: RUN_ALL
         Device: PTR:TEST:START suite="Sleep" name="test_a"
         Device: PTR:SLEEP ms=2000
 
-      Phase 2: wake → test_a Phase 2 completes
+      Phase 2: wake -> test_a Phase 2 completes
         Device: PTR:READY
         Runner: RUN: *test_a*
         Device: PTR:TEST:START suite="Sleep" name="test_a"
         Device: PTR:DONE
 
-      Restart + RESUME_AFTER test_a → test_b sleeps
-        Runner: RESTART
+      RESUME_AFTER test_a -> test_b sleeps (no restart)
         Device: PTR:READY
         Runner: RESUME_AFTER: test_a
         Device: PTR:TEST:START suite="Sleep" name="test_b"
         Device: PTR:SLEEP ms=3000
 
-      Phase 4: wake → test_b Phase 2 completes
+      Phase 4: wake -> test_b Phase 2 completes
         Device: PTR:READY
         Runner: RUN: *test_b*
         Device: PTR:TEST:START suite="Sleep" name="test_b"
         Device: PTR:DONE
 
-      Restart + RESUME_AFTER test_b → test_c runs normally
-        Runner: RESTART
+      RESUME_AFTER test_b -> test_c runs normally (no restart)
         Device: PTR:READY
         Runner: RESUME_AFTER: test_b
         Device: PTR:TEST:START suite="Other" name="test_c"
@@ -395,10 +382,7 @@ class TestTwoConsecutiveSleepTests:
             _crc("PTR:DONE"),
         ])
 
-        # Phase 2.5: _restart_device opens serial briefly to send RESTART.
-        mock_ser.add_phase([])
-
-        # Phase 3: RESUME_AFTER test_a -> test_b starts and sleeps
+        # RESUME_AFTER test_a -> test_b starts and sleeps (no restart)
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc('PTR:TEST:START suite="Sleep" name="test_b"'),
@@ -412,10 +396,7 @@ class TestTwoConsecutiveSleepTests:
             _crc("PTR:DONE"),
         ])
 
-        # Phase 4.5: _restart_device opens serial briefly to send RESTART.
-        mock_ser.add_phase([])
-
-        # Phase 5: RESUME_AFTER test_b -> test_c runs normally -> done
+        # RESUME_AFTER test_b -> test_c runs normally -> done (no restart)
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc('PTR:TEST:START suite="Other" name="test_c"'),
@@ -449,7 +430,6 @@ class TestTwoConsecutiveSleepTests:
 
         assert runner.protocol.state == ProtocolState.FINISHED
 
-        # Verify the full multi-sleep command sequence
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "test_a" in c for c in cmds), \
@@ -460,6 +440,8 @@ class TestTwoConsecutiveSleepTests:
             f"Expected RUN: *test_b* in {cmds}"
         assert any("RESUME_AFTER" in c and "test_b" in c for c in cmds), \
             f"Expected RESUME_AFTER: test_b in {cmds}"
+        assert not any("RESTART" in c for c in cmds), \
+            f"Expected no RESTART in {cmds}"
 
         # Verify test_c actually ran in the final RESUME_AFTER phase
         assert "test_c" in runner.protocol.completed_tests, \
