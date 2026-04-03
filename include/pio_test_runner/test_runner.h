@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #if defined(ESP_IDF_VERSION)
 #include <esp_heap_caps.h>
+#include <esp_sleep.h>
 #endif
 #include "pio_test_runner/protocol.h"
 
@@ -77,6 +78,41 @@ inline void signal_busy(uint32_t ms) {
 /// After calling this, the device should call esp_restart().
 inline void signal_restart() {
     emit(Serial, "PTR:RESTART");
+}
+
+// =====================================================================
+// Wake detection
+// =====================================================================
+
+/// Check if the device woke from deep sleep.
+///
+/// Returns true when esp_sleep_get_wakeup_cause() indicates a real
+/// wakeup (timer, GPIO, ULP, etc.) — not ESP_SLEEP_WAKEUP_UNDEFINED
+/// which indicates a normal boot or software reset.
+///
+/// Safe to call multiple times per boot — no consumption flag.
+/// The runner ensures only the sleeping test runs on the wake boot
+/// (via RUN: filter), and uses RESUME_AFTER on a separate cycle for
+/// remaining tests where wakeup_cause is naturally UNDEFINED.
+///
+/// @code
+/// TEST_CASE("survives deep sleep") {
+///     if (pio_test_runner::is_test_wake()) {
+///         // Phase 2: verify post-sleep state
+///     } else {
+///         // Phase 1: setup, then sleep
+///         pio_test_runner::signal_sleep(3000);
+///         esp_sleep_enable_timer_wakeup(3000000);
+///         esp_deep_sleep_start();
+///     }
+/// }
+/// @endcode
+inline bool is_test_wake() {
+#if defined(ESP_IDF_VERSION)
+    return esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED;
+#else
+    return false;
+#endif
 }
 
 // =====================================================================

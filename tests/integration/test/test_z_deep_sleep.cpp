@@ -34,9 +34,12 @@
 TEST_SUITE("DeepSleep") {
 
 TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
-    auto cause = esp_sleep_get_wakeup_cause();
-
-    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    if (pio_test_runner::is_test_wake()) {
+        // Phase 2: woke from timer
+        auto cause = esp_sleep_get_wakeup_cause();
+        Serial.printf("Phase 2: woke with cause=%d\n", (int)cause);
+        CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
+    } else {
         // Phase 1: first boot — pre-sleep check, then sleep
         Serial.println("Phase 1: entering deep sleep for 3s");
         CHECK(true);
@@ -49,16 +52,15 @@ TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
         esp_deep_sleep_start();
         // never reached — device resets
     }
-
-    // Phase 2: woke from timer
-    Serial.printf("Phase 2: woke with cause=%d\n", (int)cause);
-    CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
 }
 
 TEST_CASE("second sleep test" * doctest::timeout(30)) {
-    auto cause = esp_sleep_get_wakeup_cause();
-
-    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    if (pio_test_runner::is_test_wake()) {
+        // Phase 2: verify wake
+        auto cause = esp_sleep_get_wakeup_cause();
+        Serial.printf("Second sleep: Phase 2 — woke with cause=%d\n", (int)cause);
+        CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
+    } else {
         // Phase 1: sleep for 2s
         Serial.println("Second sleep: Phase 1 — entering deep sleep for 2s");
         CHECK(true);
@@ -70,10 +72,6 @@ TEST_CASE("second sleep test" * doctest::timeout(30)) {
         esp_sleep_enable_timer_wakeup(2 * 1000000ULL);
         esp_deep_sleep_start();
     }
-
-    // Phase 2: verify wake
-    Serial.printf("Second sleep: Phase 2 — woke with cause=%d\n", (int)cause);
-    CHECK(cause == ESP_SLEEP_WAKEUP_TIMER);
 }
 
 TEST_CASE("runs after sleep tests" * doctest::timeout(10)) {
