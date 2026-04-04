@@ -12,7 +12,7 @@
     "build": {
         "srcDir": "src/pio_test_runner",
         "srcFilter": [
-            "+<default_main.cpp>"
+            "-<*>"
         ],
         "includeDir": "include"
     }

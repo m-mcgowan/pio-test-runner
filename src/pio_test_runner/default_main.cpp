@@ -18,9 +18,7 @@
  * @endcode
  */
 
-// NOTE: DOCTEST_CONFIG_IMPLEMENT is NOT defined here.
-// Projects must define it in their own main.cpp (exactly one TU).
-// This file only provides weak setup()/loop()/hooks.
+#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
 #include <pio_test_runner/doctest_runner.h>
 
