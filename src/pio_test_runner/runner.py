@@ -392,6 +392,7 @@ class EmbeddedTestRunner(_BaseRunner):
                 self._add_error_case("runner_error", str(exc), exc)
         finally:
             self._close_serial()
+            self._ensure_test_results()
             self._print_summary()
             if not self.test_suite.is_finished():
                 self.test_suite.on_finish()
@@ -799,6 +800,25 @@ class EmbeddedTestRunner(_BaseRunner):
                     status=TestStatus.FAILED,
                     message=messages[0] if messages else "Assertion failed",
                     stdout="\n".join(messages),
+                ))
+
+    def _ensure_test_results(self):
+        """Ensure the test suite has results from all cycles.
+
+        PIO's DoctestTestCaseParser may not add cases in orchestrated mode.
+        Add PASSED cases for completed tests that don't have a case yet,
+        excluding any that had assertion failures (already reported as FAILED).
+        """
+        if TestCase is None or TestStatus is None:
+            return
+
+        existing = {c.name for c in self.test_suite.cases}
+
+        for full_name in self.protocol.completed_tests:
+            if full_name not in existing and full_name not in self._test_failures:
+                self.test_suite.add_case(TestCase(
+                    name=full_name,
+                    status=TestStatus.PASSED,
                 ))
 
     def _check_crash(self):

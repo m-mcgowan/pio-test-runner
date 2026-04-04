@@ -100,8 +100,9 @@ class ReadyRunProtocol:
                 self._current_test_suite = suite
             if name and isinstance(name, str):
                 self._current_test_name = name
-                if name not in self._completed_tests:
-                    self._completed_tests.append(name)
+                full = f"{self._current_test_suite}/{name}" if self._current_test_suite else name
+                if full not in self._completed_tests:
+                    self._completed_tests.append(full)
             # Per-test timeout from doctest::timeout(N) annotation
             self._current_test_timeout = int(timeout) if timeout else 0
 

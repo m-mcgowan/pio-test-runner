@@ -325,8 +325,8 @@ class TestSleepWithResumeAfter:
             f"Expected no RESTART in {cmds}"
 
         # Verify the "normal test" actually ran in Phase 3
-        assert "normal test" in runner.protocol.completed_tests, \
-            f"Expected 'normal test' in completed_tests: {runner.protocol.completed_tests}"
+        assert "Other/normal test" in runner.protocol.completed_tests, \
+            f"Expected 'Other/normal test' in completed_tests: {runner.protocol.completed_tests}"
 
 
 class TestTwoConsecutiveSleepTests:
@@ -444,8 +444,8 @@ class TestTwoConsecutiveSleepTests:
             f"Expected no RESTART in {cmds}"
 
         # Verify test_c actually ran in the final RESUME_AFTER phase
-        assert "test_c" in runner.protocol.completed_tests, \
-            f"Expected 'test_c' in completed_tests: {runner.protocol.completed_tests}"
+        assert "Other/test_c" in runner.protocol.completed_tests, \
+            f"Expected 'Other/test_c' in completed_tests: {runner.protocol.completed_tests}"
 
 
 class TestFailurePropagationAcrossSleepCycles:
@@ -518,3 +518,67 @@ class TestFailurePropagationAcrossSleepCycles:
                   if c.status == MockTestStatus.FAILED]
         assert len(failed) == 1
         assert failed[0].name == "Sensor/calibration check"
+
+    def test_passing_tests_reported_across_cycles(self):
+        """Completed tests from all cycles appear as PASSED in the suite."""
+        mock_ser = MockSerial()
+
+        # Phase 1: sleep test
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("PTR:SLEEP ms=3000"),
+        ])
+
+        # Phase 2: sleep test passes
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
+            "  CHECK( cause == ESP_SLEEP_WAKEUP_TIMER ) is correct!",
+            _crc("PTR:DONE"),
+        ])
+
+        # RESUME_AFTER: remaining test passes
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Sensor" name="calibration"'),
+            "  CHECK( offset < 10 ) is correct!",
+            _crc("PTR:DONE"),
+        ])
+
+        runner = make_orchestrated_runner(mock_ser)
+        open_count = 0
+
+        def mock_open_serial(reset=True):
+            nonlocal open_count
+            if open_count > 0:
+                mock_ser.reopen()
+            runner._ser = mock_ser
+            runner._port_path = "/dev/mock"
+            open_count += 1
+
+        fast_time = FastClock(start=1000.0, step=100.0)
+
+        with patch.object(runner, "configure_orchestrated", return_value=True), \
+             patch.object(runner, "configure_sleep_padding", return_value=0), \
+             patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
+             patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
+             patch.dict(os.environ, {"PTR_POST_TEST": "none"}, clear=True), \
+             patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
+             patch("time.sleep"), \
+             patch("time.monotonic", return_value=0), \
+             patch("time.time", side_effect=fast_time):
+            runner.stage_testing()
+
+        assert runner.protocol.state == ProtocolState.FINISHED
+
+        # Both tests should be PASSED in the suite (across cycles)
+        from conftest import MockTestStatus
+        passed = [c for c in runner.test_suite.cases
+                  if c.status == MockTestStatus.PASSED]
+        passed_names = {c.name for c in passed}
+        assert "sleep test" in passed_names or "DeepSleep/sleep test" in passed_names, \
+            f"Expected sleep test in passed: {passed_names}"
+        assert "calibration" in passed_names or "Sensor/calibration" in passed_names, \
+            f"Expected calibration in passed: {passed_names}"
+        assert len(runner._test_failures) == 0
