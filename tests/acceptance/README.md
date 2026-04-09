@@ -51,13 +51,13 @@ for acceptance tests.
 
 | Feature | Test file | What's validated |
 |---------|-----------|-----------------|
-| `ETST_TEST_SUITE` env var | test_env_vars.py | Suite filter via env → correct tests run |
-| `ETST_TEST_CASE` env var | test_env_vars.py | Case filter via env |
-| `ETST_TEST_CASE_EXCLUDE` env var | test_env_vars.py | Case exclusion via env |
-| `ETST_TEST_SUITE_EXCLUDE` env var | test_env_vars.py | Suite exclusion via env |
-| `ETST_UNSKIP_TEST_CASE` env var | test_env_vars.py | Selective unskip via env |
-| `ETST_UNSKIP_TEST_SUITE` env var | test_env_vars.py | Suite unskip via env |
-| `ETST_SKIP_TEST_CASE` env var | test_env_vars.py | Force-skip via env |
+| `ETST_SUITE` env var | test_env_vars.py | Suite filter via env → correct tests run |
+| `ETST_CASE` env var | test_env_vars.py | Case filter via env |
+| `ETST_CASE_EXCLUDE` env var | test_env_vars.py | Case exclusion via env |
+| `ETST_SUITE_EXCLUDE` env var | test_env_vars.py | Suite exclusion via env |
+| `ETST_UNSKIP_CASE` env var | test_env_vars.py | Selective unskip via env |
+| `ETST_UNSKIP_SUITE` env var | test_env_vars.py | Suite unskip via env |
+| `ETST_SKIP_CASE` env var | test_env_vars.py | Force-skip via env |
 | `ETST_NO_SKIP` env var | test_env_vars.py | Global unskip via env |
 | `pio test -a "..."` args | test_env_vars.py | Flags passed through to device |
 | `-a` combined with env vars | test_env_vars.py | Both sources compose correctly |

@@ -5,6 +5,55 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-09
+
+### Breaking Changes
+- **Protocol prefix renamed** `PTR:` → `ETST:` (Embedded Test). All protocol
+  markers updated: `ETST:READY`, `ETST:DONE`, `ETST:SLEEP`, etc. Firmware
+  must be rebuilt to emit the new prefix.
+- **Protocol tag renamed** `ETST:TEST:START` → `ETST:CASE:START` (avoids
+  "test test" stutter). `ETST:TESTS` → `ETST:COUNTS`.
+- **Environment variables renamed** `PTR_*` → `ETST_*`. Old names still work
+  with a deprecation warning. `ETST_TEST_CASE`, `ETST_POST_TEST`, etc.
+
+### Added
+- **`--wake` protocol flag** — host tells firmware this is a Phase 2 wake
+  cycle via `RUN: --wake --tc "test name"`. Replaces RTC memory flag — no
+  sleep memory consumed. `is_test_wake()` reads the protocol flag instead
+  of hardware wake cause register.
+- **Accurate skip/run counts** — `ETST:COUNTS` now reflects `--tc`, `--ts`,
+  `--tce`, `--tse` filters, not just RESUME_AFTER skips. Uses
+  `count_passing_filters()` to replicate doctest's filter matching.
+- **Hang detection in line callback mode** — `on_testing_line_output()` now
+  tracks the gap between lines and reports a hang if it exceeds the timeout.
+  Previously only worked in orchestrated mode.
+- **Aggregate run summary** — `[runner] N ran | N passed | N failed` printed
+  after all sleep/wake cycles complete, counting unique tests across cycles.
+- **Protocol message builders** — `msg_ready()`, `msg_done()`,
+  `msg_case_start()`, `msg_counts()`, etc. in `protocol.py` so the prefix
+  is defined once.
+- **Deep sleep test documentation** — README section with complete example
+  of two-phase sleep/wake pattern using `signal_sleep()` / `is_test_wake()`.
+- **Non-suite test coverage** — integration firmware includes a test outside
+  any `TEST_SUITE()` to verify filter behavior with empty suite names.
+- **Roadmap** — `docs/ROADMAP.md` covering framework abstraction, host
+  abstraction, bidirectional data channel, and platform expansion.
+
+### Fixed
+- **Phase 2 resume command** — send `RUN: --wake --tc "exact name"` instead
+  of `RUN: *name*`. Fixes tokenizer splitting multi-word test names (all
+  tests re-ran instead of just the sleeping test). Fixes wildcard substring
+  collisions between similarly-named tests.
+- **`is_test_wake()` across multiple sleep tests** — flag cleared after each
+  `run_cycle()` so RESUME_AFTER tests don't see stale wake state from a
+  previous sleep test.
+- **Integration test build** — added `test/main.cpp` for header-only library
+  mode (after `default_main.cpp` was excluded from build in 0.2.0).
+- **PlatformIO environment isolation** — `.envrc` with separate
+  `PLATFORMIO_CORE_DIR` prevents esptoolpy package conflicts.
+- **CI** — install embedded-bridge from git, ignore acceptance tests
+  (require hardware).
+
 ## [0.2.0] — 2026-03-31
 
 ### Added

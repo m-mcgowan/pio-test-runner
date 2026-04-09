@@ -24,7 +24,7 @@ def baud(request):
 def ensure_device_awake(port):
     """Wait for device port to be available.
 
-    After ETST_POST_TEST=restart, the USB-CDC port drops briefly during
+    After ETST_ON_DONE=restart, the USB-CDC port drops briefly during
     reboot. Wait for it to become openable. Don't read serial data —
     leave ETST:READY for send_command() to consume.
     """

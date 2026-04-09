@@ -5,6 +5,21 @@ dist/
 build/
 .pytest_cache/
 .githooks/
+.venv/
 
 # Compiled native test binaries
 tests/test_doctest_internals
+
+# Development notes (not shipped)
+BUG_*.md
+docs/BUG-*.md
+docs/TODO-*.md
+docs/superpowers/
+
+# Log files
+logs/
+tests/integration/logs/
+
+# PlatformIO build artifacts
+tests/integration/.pio/
+tests/integration/src/idf_component.yml

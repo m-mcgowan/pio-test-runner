@@ -229,7 +229,7 @@ class TestProgramArgs:
         assert "*BHI385*" in cmd
 
     def test_program_args_combined_with_env(self, monkeypatch):
-        monkeypatch.setenv("ETST_TEST_CASE", "*watermark*")
+        monkeypatch.setenv("ETST_CASE", "*watermark*")
         opts = MockTestRunnerOptions()
         opts.program_args = ["--ts", "*BHI385*"]
         runner = make_runner(options=opts)
@@ -245,7 +245,7 @@ class TestProgramArgs:
         assert "--ts *Suite*" in cmd
 
     def test_env_only(self, monkeypatch):
-        monkeypatch.setenv("ETST_TEST_SUITE", "*GPS*")
+        monkeypatch.setenv("ETST_SUITE", "*GPS*")
         runner = make_runner()
         cmd = runner._build_initial_command()
         assert cmd == "RUN: --ts *GPS*"

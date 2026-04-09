@@ -161,6 +161,19 @@ class TestCaseFilter:
         assert "Arduino millis is running" not in result["tests_run"]
         send_sleep(device)
 
+    def test_tc_quoted_name_with_spaces(self, device):
+        """Quoted test name with spaces selects exactly one test."""
+        result = send_command(device, 'RUN: --tc "Arduino millis is running"')
+        assert result["tests_run"] == ["Arduino millis is running"]
+        send_sleep(device)
+
+    def test_tse_comma_separated(self, device):
+        """Comma-separated --tse excludes multiple suites."""
+        result = send_command(device, "RUN: --tse *Protocol*,*DeepSleep*")
+        assert "basic arithmetic" not in result["tests_run"]
+        assert "skip target active" in result["tests_run"]
+        send_sleep(device)
+
 
 # =========================================================================
 # Exclude filters (--tce, --tse)

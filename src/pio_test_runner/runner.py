@@ -200,7 +200,7 @@ class EmbeddedTestRunner(_BaseRunner):
         Override in subclass, or set ETST_HANG_TIMEOUT env var (seconds).
         Per-test doctest::timeout(N) annotations take precedence when present.
         """
-        env_val = _env("ETST_HANG_TIMEOUT", "PTR_HANG_TIMEOUT")
+        env_val = _env("ETST_HANG_TIMEOUT", "PTR_HANG_TIMEOUT")  # keep HANG_TIMEOUT as-is
         if env_val:
             return float(env_val)
         return 30.0
@@ -294,10 +294,10 @@ class EmbeddedTestRunner(_BaseRunner):
            flags as doctest: --tc, --ts, --tce, --tse.
 
         2. Environment variables:
-           ETST_TEST_CASE=*pattern*       → --tc (test-case filter)
-           ETST_TEST_SUITE=*pattern*      → --ts (test-suite filter)
-           ETST_TEST_CASE_EXCLUDE=*pat*   → --tce (test-case-exclude)
-           ETST_TEST_SUITE_EXCLUDE=*pat*  → --tse (test-suite-exclude)
+           ETST_CASE=*pattern*            → --tc (test-case filter)
+           ETST_SUITE=*pattern*           → --ts (test-suite filter)
+           ETST_CASE_EXCLUDE=*pat*        → --tce (test-case-exclude)
+           ETST_SUITE_EXCLUDE=*pat*       → --tse (test-suite-exclude)
 
         Returns "RUN_ALL" if no filters specified, otherwise
         "RUN: --tc ... --ts ..." etc.
@@ -305,7 +305,7 @@ class EmbeddedTestRunner(_BaseRunner):
         # Resume from a specific test — skip all tests up to and including
         # the named test, then run the rest. Useful for resuming after a
         # failure without re-running already-passed tests.
-        resume_after = _env("ETST_RESUME_AFTER", "PTR_RESUME_AFTER")
+        resume_after = _env("ETST_RESUME_AFTER", "PTR_RESUME_AFTER")  # no shorter name — already clear
 
         filters = []
 
@@ -331,14 +331,14 @@ class EmbeddedTestRunner(_BaseRunner):
 
         # Source 2: environment variables (ETST_* preferred, PTR_* deprecated)
         env_map = [
-            ("ETST_TEST_CASE", "PTR_TEST_CASE", "--tc"),
-            ("ETST_TEST_SUITE", "PTR_TEST_SUITE", "--ts"),
-            ("ETST_TEST_CASE_EXCLUDE", "PTR_TEST_CASE_EXCLUDE", "--tce"),
-            ("ETST_TEST_SUITE_EXCLUDE", "PTR_TEST_SUITE_EXCLUDE", "--tse"),
-            ("ETST_UNSKIP_TEST_CASE", "PTR_UNSKIP_TEST_CASE", "--unskip-tc"),
-            ("ETST_UNSKIP_TEST_SUITE", "PTR_UNSKIP_TEST_SUITE", "--unskip-ts"),
-            ("ETST_SKIP_TEST_CASE", "PTR_SKIP_TEST_CASE", "--skip-tc"),
-            ("ETST_SKIP_TEST_SUITE", "PTR_SKIP_TEST_SUITE", "--skip-ts"),
+            ("ETST_CASE", "PTR_TEST_CASE", "--tc"),
+            ("ETST_SUITE", "PTR_TEST_SUITE", "--ts"),
+            ("ETST_CASE_EXCLUDE", "PTR_TEST_CASE_EXCLUDE", "--tce"),
+            ("ETST_SUITE_EXCLUDE", "PTR_TEST_SUITE_EXCLUDE", "--tse"),
+            ("ETST_UNSKIP_CASE", "PTR_UNSKIP_TEST_CASE", "--unskip-tc"),
+            ("ETST_UNSKIP_SUITE", "PTR_UNSKIP_TEST_SUITE", "--unskip-ts"),
+            ("ETST_SKIP_CASE", "PTR_SKIP_TEST_CASE", "--skip-tc"),
+            ("ETST_SKIP_SUITE", "PTR_SKIP_TEST_SUITE", "--skip-ts"),
             ("ETST_NO_SKIP", "PTR_NO_SKIP", "--no-skip"),
         ]
         for new_var, old_var, flag in env_map:
@@ -560,14 +560,14 @@ class EmbeddedTestRunner(_BaseRunner):
         # Skipped for intermediate cycles (e.g. Phase 2 of sleep) — the
         # host stays in control and sends RESUME_AFTER directly.
         #
-        # Set ETST_POST_TEST=restart for acceptance test workflows.
+        # Set ETST_ON_DONE=restart for acceptance test workflows.
         if skip_post_test:
-            _echo("[runner] Intermediate cycle — skipping post-test command")
+            _echo("[runner] Intermediate cycle — skipping on-done action")
             self._close_serial()
             return
-        post_test = _env("ETST_POST_TEST", "PTR_POST_TEST", "sleep").lower()
-        if post_test == "none":
-            _echo("[runner] ETST_POST_TEST=none — closing without command")
+        on_done = _env("ETST_ON_DONE", "PTR_POST_TEST", "wait").lower()
+        if on_done == "none":
+            _echo("[runner] ETST_ON_DONE=none — closing without command")
         elif self._ser and self._ser.is_open:
             cmd_map = {
                 "sleep": "SLEEP",
@@ -575,7 +575,7 @@ class EmbeddedTestRunner(_BaseRunner):
                 "restart": "RESTART",
                 "wait": "WAIT",
             }
-            cmd = cmd_map.get(post_test, "SLEEP")
+            cmd = cmd_map.get(on_done, "WAIT")
             try:
                 self._ser.write(f"{cmd}\n".encode())
                 self._ser.flush()

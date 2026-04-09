@@ -217,7 +217,7 @@ class TestSingleSleepCycle:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -306,7 +306,7 @@ class TestSleepWithResumeAfter:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -421,7 +421,7 @@ class TestTwoConsecutiveSleepTests:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -500,7 +500,7 @@ class TestFailurePropagationAcrossSleepCycles:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -563,7 +563,7 @@ class TestFailurePropagationAcrossSleepCycles:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -640,7 +640,7 @@ class TestPhase2CommandFormat:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \
@@ -704,7 +704,7 @@ class TestPhase2CommandFormat:
              patch.object(runner, "configure_sleep_padding", return_value=0), \
              patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
              patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
-             patch.dict(os.environ, {"ETST_POST_TEST": "none"}, clear=True), \
+             patch.dict(os.environ, {"ETST_ON_DONE": "none"}, clear=True), \
              patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
              patch("time.sleep"), \
              patch("time.monotonic", return_value=0), \

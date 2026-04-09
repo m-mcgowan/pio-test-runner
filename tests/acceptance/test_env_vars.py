@@ -108,37 +108,37 @@ def run_pio_test(project_dir, env, port, extra_env=None, program_args=None, time
 
 
 class TestEnvVarSuiteFilter:
-    """ETST_TEST_SUITE env var filters to matching suites."""
+    """ETST_SUITE env var filters to matching suites."""
 
     def test_ptr_test_suite(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
-            extra_env={"ETST_TEST_SUITE": "*Protocol*"},
+            extra_env={"ETST_SUITE": "*Protocol*"},
         )
         assert "basic arithmetic" in result["tests_run"]
         assert "skip target active" not in result["tests_run"]
 
 
 class TestEnvVarCaseFilter:
-    """ETST_TEST_CASE env var filters to matching test cases."""
+    """ETST_CASE env var filters to matching test cases."""
 
     def test_ptr_test_case(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
-            extra_env={"ETST_TEST_CASE": "*basic*arithmetic*"},
+            extra_env={"ETST_CASE": "*basic*arithmetic*"},
         )
         assert result["tests_run"] == ["basic arithmetic"]
 
 
 class TestEnvVarExclude:
-    """ETST_TEST_CASE_EXCLUDE and ETST_TEST_SUITE_EXCLUDE env vars."""
+    """ETST_CASE_EXCLUDE and ETST_SUITE_EXCLUDE env vars."""
 
     def test_ptr_test_case_exclude(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
             extra_env={
-                "ETST_TEST_SUITE": "*Protocol*",
-                "ETST_TEST_CASE_EXCLUDE": "*string*",
+                "ETST_SUITE": "*Protocol*",
+                "ETST_CASE_EXCLUDE": "*string*",
             },
         )
         assert "basic arithmetic" in result["tests_run"]
@@ -147,21 +147,21 @@ class TestEnvVarExclude:
     def test_ptr_test_suite_exclude(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
-            extra_env={"ETST_TEST_SUITE_EXCLUDE": "*Protocol*"},
+            extra_env={"ETST_SUITE_EXCLUDE": "*Protocol*"},
         )
         assert "basic arithmetic" not in result["tests_run"]
         assert "skip target active" in result["tests_run"]
 
 
 class TestEnvVarUnskip:
-    """ETST_UNSKIP_TEST_CASE and ETST_UNSKIP_TEST_SUITE env vars."""
+    """ETST_UNSKIP_CASE and ETST_UNSKIP_SUITE env vars."""
 
     def test_ptr_unskip_test_case(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
             extra_env={
-                "ETST_UNSKIP_TEST_CASE": "*unskip*target*simple*",
-                "ETST_TEST_SUITE": "*SkipControl*",
+                "ETST_UNSKIP_CASE": "*unskip*target*simple*",
+                "ETST_SUITE": "*SkipControl*",
             },
         )
         assert "unskip target simple" in result["tests_run"]
@@ -171,22 +171,22 @@ class TestEnvVarUnskip:
         result = run_pio_test(
             pio_project_dir, pio_env, port,
             extra_env={
-                "ETST_UNSKIP_TEST_SUITE": "*SubSuite*",
-                "ETST_TEST_SUITE": "*SubSuite*",
+                "ETST_UNSKIP_SUITE": "*SubSuite*",
+                "ETST_SUITE": "*SubSuite*",
             },
         )
         assert "suite unskip target" in result["tests_run"]
 
 
 class TestEnvVarSkip:
-    """ETST_SKIP_TEST_CASE and ETST_SKIP_TEST_SUITE env vars."""
+    """ETST_SKIP_CASE and ETST_SKIP_SUITE env vars."""
 
     def test_ptr_skip_test_case(self, pio_project_dir, pio_env, port):
         result = run_pio_test(
             pio_project_dir, pio_env, port,
             extra_env={
-                "ETST_SKIP_TEST_CASE": "*skip*target*active*",
-                "ETST_TEST_SUITE": "*SkipControl*",
+                "ETST_SKIP_CASE": "*skip*target*active*",
+                "ETST_SUITE": "*SkipControl*",
             },
         )
         assert "skip target active" not in result["tests_run"]
@@ -200,7 +200,7 @@ class TestEnvVarNoSkip:
             pio_project_dir, pio_env, port,
             extra_env={
                 "ETST_NO_SKIP": "1",
-                "ETST_TEST_SUITE": "*SkipControl*",
+                "ETST_SUITE": "*SkipControl*",
             },
         )
         assert "unskip target simple" in result["tests_run"]
@@ -245,7 +245,7 @@ class TestProgramArgs:
         """Program args and env vars combine."""
         result = run_pio_test(
             pio_project_dir, pio_env, port,
-            extra_env={"ETST_TEST_SUITE": "*Protocol*"},
+            extra_env={"ETST_SUITE": "*Protocol*"},
             program_args=["--tc *millis*"],
         )
         assert result["tests_run"] == ["Arduino millis is running"]

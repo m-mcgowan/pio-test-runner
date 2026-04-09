@@ -57,108 +57,154 @@ orchestration framework.
 
 ---
 
-## Phase 1: Framework Abstraction (C++ Side)
+## Phase 1: Framework & Platform Abstraction (C++ Side)
 
-Split `doctest_runner.h` into layers:
+### Namespace Structure
 
 ```
-test_orchestrator.h          (framework-agnostic)
-  ├─ command parsing         RUN:, RESUME_AFTER:, LIST, --wake
-  ├─ idle loop               READY/command/DONE cycle
-  ├─ run_cycle()             calls adapter.run()
-  └─ filter state            FilterState, count_passing_filters()
+etst::                              framework-agnostic protocol & orchestration
+  signal_sleep(), signal_restart()  lifecycle signals
+  is_continuation()                 multi-phase test detection
+  send_data(), on_restore()         (future) data channel
 
-doctest_adapter.h            (doctest-specific)
-  ├─ PtrTestListener         doctest::IReporter → ETST markers
-  ├─ registry walking        getRegisteredTests()
-  ├─ filter application      ctx.applyCommandLine(), modify_skip()
-  └─ execution               context.run()
+etst::doctest::                     doctest adapter
+  EtstDoctestListener               doctest::IReporter → ETST markers
+  run_tests(), idle_loop()          doctest entry points
+  config                            doctest-specific callbacks
 
-unity_adapter.h              (future)
-  ├─ UnityReporter           Unity reporter → ETST markers
-  ├─ test listing            Unity test registry
-  └─ execution               UnityMain()
+etst::unity::                       (future) Unity adapter
+etst::catch2::                      (future) Catch2 adapter
+
+etst::platform::                    platform abstraction
+  restart(), sleep(), lightsleep()  overridable platform hooks
+
+etst::platform::esp32::             ESP32 implementation
+etst::platform::stm32::            (future) STM32 implementation
 ```
+
+### File Layout
+
+```
+include/etst/
+  ├─ protocol.h              CRC, emit(), wire format
+  ├─ test_runner.h           lifecycle signals, phase detection, memory markers
+  ├─ orchestrator.h          command parsing, idle loop, run cycle
+  ├─ platform.h              platform abstraction (restart, sleep hooks)
+  ├─ platform/esp32.h        ESP32 defaults
+  ├─ doctest/
+  │   ├─ runner.h            doctest adapter (listener, filters, context.run)
+  │   └─ config.h            doctest-specific callbacks
+  └─ unity/                  (future)
+      └─ runner.h
+
+include/pio_test_runner/     backward-compat aliases (deprecated)
+  ├─ test_runner.h           → #include <etst/test_runner.h>
+  └─ doctest_runner.h        → #include <etst/doctest/runner.h>
+```
+
+### Multi-Phase Tests
+
+Sleep/wake is one kind of phase transition. The framework should support
+any operation that disrupts the test lifecycle:
+
+| Trigger | Firmware action | Host action | Example |
+|---------|----------------|-------------|---------|
+| Deep sleep | `esp_deep_sleep_start()` | Wait for port drop/reappear | Verify RTC data survives |
+| Software restart | `esp_restart()` | Wait for reconnect | Verify boot count persists |
+| Power cycle | Signal host | Toggle USB power, PPK2, GPIO | Verify cold boot recovery |
+| Firmware update | Signal host | Flash new binary, reconnect | Verify OTA upgrade path |
+
+The protocol generalizes `--wake` to `--phase N` or `--continue`:
+
+```
+RUN: --continue --tc "survives power cycle"
+```
+
+And `is_test_wake()` generalizes to:
+
+```cpp
+if (etst::is_continuation()) {
+    // Phase 2+: verify post-transition state
+} else {
+    // Phase 1: setup, then trigger transition
+    etst::signal_phase_end(ETST_POWER_CYCLE);
+}
+```
+
+Multiple phases per test are supported — each `signal_phase_end()` triggers
+a new cycle. The host tracks the phase count.
+
+### Host-Side Phase Hooks (Python)
+
+Phase transitions are bilateral — firmware does something AND the host does
+something. The Python runner needs hooks for each transition type:
+
+```python
+class PhaseHandler:
+    def on_sleep(self, test_name: str, duration_ms: int) -> None:
+        """Default: wait for port to disappear, then reappear."""
+        ...
+
+    def on_restart(self, test_name: str) -> None:
+        """Default: wait for port reconnect."""
+        ...
+
+    def on_power_cycle(self, test_name: str) -> None:
+        """User-provided: toggle hardware power via PPK2, USB hub, GPIO."""
+        raise NotImplementedError("Configure a power cycle handler")
+
+    def on_phase_start(self, test_name: str, phase: int) -> None:
+        """General hook for any phase transition."""
+        ...
+```
+
+This is how hardware-specific test infrastructure (PPK2, labgrid, USB hubs,
+Raspberry Pi GPIO) integrates with the runner. Users subclass `PhaseHandler`
+for their lab setup.
 
 ### Adapter Interface
 
 ```cpp
 struct TestFrameworkAdapter {
-    /// Return the number of registered tests.
     virtual unsigned total_tests() = 0;
-
-    /// List all test names (for LIST command and RESUME_AFTER).
     virtual std::vector<const char*> test_names() = 0;
-
-    /// Apply filters and return the number of tests that will run.
-    /// Filters are passed as a tokenized arg list (e.g. ["--tc", "pattern"]).
     virtual unsigned apply_filters(const std::vector<String>& args) = 0;
-
-    /// Skip to the test after `name` (for RESUME_AFTER). Return skip count.
     virtual int skip_to_after(const char* name) = 0;
-
-    /// Execute tests. Returns number of failures.
     virtual int run() = 0;
 };
 ```
 
-### DX Impact: None
+### Entry Point / main.cpp
 
-Users still write:
-```cpp
-#define DOCTEST_CONFIG_IMPLEMENT
-#include <doctest.h>
-#include <pio_test_runner/doctest_runner.h>
+The `default_main.cpp` link conflict (DOCTEST_CONFIG_IMPLEMENT emitted by
+both the library and user code) blocks zero-config setup. Current state:
+users must create their own `test/main.cpp`.
 
-void setup() { DOCTEST_SETUP(); }
-void loop()  { DOCTEST_LOOP(); }
-```
+The entry point design is intentionally left open — we need to understand
+what developers want to customize before locking down the abstraction.
+Known customization points:
 
-The split is internal — `doctest_runner.h` includes `test_orchestrator.h` and
-wires up `DoctestAdapter` automatically. Unity users would include
-`unity_runner.h` instead.
+- Board initialization (filesystem mount, revision detection, power setup)
+- Framework configuration (doctest context options, test ordering)
+- Post-cycle cleanup (coverage dump, resource deinitialization)
+- Platform hooks (custom restart, custom sleep)
+- Ready timeout (standalone vs hosted operation)
 
-### DX Issues to Fix Before Stabilizing
+These are currently exposed via `etst::doctest::config` callbacks and weak
+functions. The right abstraction may be a builder pattern, a config struct,
+or something else entirely. Premature abstraction here would box us in.
 
-- `DOCTEST_SETUP()` / `DOCTEST_LOOP()` macros vs `ptr_doctest::run_tests()` /
-  `ptr_doctest::idle_loop()` — the macros exist for brevity but the namespace
-  functions are the real API. Pick one and deprecate the other.
-- `ptr_doctest::config.configure_context` takes `doctest::Context&` — this
-  leaks the framework into the user API. Consider whether this callback is
-  necessary or if all use cases can be handled via env vars and build flags.
-
-### Namespace and Include Path Rename
-
-The C++ namespaces and include paths still reflect the old naming:
+### Include Path Rename
 
 | Current | Future | Notes |
 |---------|--------|-------|
-| `#include <pio_test_runner/...>` | `#include <etst/...>` | Include path |
-| `pio_test_runner::signal_sleep()` | `etst::signal_sleep()` | Protocol namespace |
-| `ptr_doctest::config` | `etst::config` | Runner namespace |
-| `ptr_doctest::run_tests()` | `etst::run_tests()` | Runner namespace |
-| `PtrTestListener` | `EtstTestListener` | Internal class |
-| `_ptr_is_wake_cycle` | `_etst_is_wake_cycle` | Internal variable |
+| `#include <pio_test_runner/...>` | `#include <etst/...>` | Symlink for backward compat |
+| `pio_test_runner::signal_sleep()` | `etst::signal_sleep()` | Namespace alias |
+| `ptr_doctest::config` | `etst::doctest::config` | Subnamespace |
+| `ptr_doctest::run_tests()` | `etst::doctest::run_tests()` | |
+| `PtrTestListener` | `EtstDoctestListener` | Framework-specific name |
 
-**Strategy**: rename with backward-compat aliases in the old headers:
-```cpp
-// pio_test_runner/test_runner.h (deprecated, forwards to etst/test_runner.h)
-#pragma once
-#include <etst/test_runner.h>
-namespace pio_test_runner = etst;
-```
-
-Consumer code (`~/e/firmware2/simple_publish`, etc.) uses:
-- `#include <pio_test_runner/doctest_runner.h>`
-- `ptr_doctest::config`, `ptr_doctest::run_tests()`, `ptr_doctest::idle_loop()`
-- `pio_test_runner::signal_sleep()`, `pio_test_runner::signal_busy()`
-
-The Python package name (`pio_test_runner`) should also be renamed, with the
-old name kept as a compatibility shim. The `library.json` name and git repo
-would change to `embedded-test-runner` or similar.
-
-This is a coordinated rename across the library and all consumers. Ship the
-backward-compat aliases first so consumers can migrate at their own pace.
+Consumer code migrates via namespace aliases — old names continue to work.
 
 ---
 
@@ -203,46 +249,67 @@ with different wire formats.
 Decouple from PlatformIO's runner infrastructure:
 
 ```
-embedded_test_runner.py      (standalone, no PIO dependency)
-  ├─ serial management       pyserial directly
-  ├─ protocol handling       existing protocol.py
-  ├─ orchestration           sleep/wake, RESUME_AFTER
-  └─ result collection       plain Python dicts
+etst/
+  ├─ runner.py               orchestration (framework-agnostic)
+  ├─ protocol.py             wire format, message builders
+  ├─ hooks.py                phase transition hooks (extensible)
+  │   ├─ PhaseHandler        base class with defaults
+  │   ├─ on_sleep()          wait for port drop/reappear
+  │   ├─ on_restart()        wait for reconnect
+  │   └─ on_power_cycle()    user-provided: PPK2, USB hub, GPIO
+  ├─ filters.py              framework-specific filter builders
+  └─ results.py              plain Python result collection
 
-pio_adapter.py               (PIO integration layer)
-  ├─ inherits TestRunnerBase
-  ├─ maps PIO options to runner config
-  └─ reports results via TestCase/TestStatus
+etst.pio/                    PIO integration layer
+  ├─ adapter.py              inherits TestRunnerBase
+  └─ maps PIO options → runner config
 
-cli.py                       (future: standalone CLI)
-  ├─ argparse for port, baud, filters
-  └─ wraps embedded_test_runner
+etst.cli/                    (future: standalone CLI)
+  └─ argparse for port, baud, filters
 ```
 
 This enables:
-- **Arduino IDE users**: run `python -m pio_test_runner --port /dev/ttyUSB0`
+- **Arduino IDE users**: `python -m etst --port /dev/ttyUSB0`
 - **Zephyr users**: integrate via west extension or standalone script
 - **CI/CD**: run without PIO installed
 - **PIO users**: unchanged experience via `test_custom_runner.py`
 
-### Filter Syntax Abstraction
+### Phase Transition Hooks
 
-Currently filters are doctest-specific (`--tc`, `--ts`). The host should
-translate from a generic filter format to framework-specific syntax:
+Phase transitions are bilateral. The host needs hooks that mirror the
+firmware's platform hooks:
 
 ```python
-class FilterBuilder:
-    """Framework-specific filter command builder."""
-    def build_run_command(self, tc=None, ts=None, tce=None, tse=None, wake=False) -> str:
-        ...
+class PhaseHandler:
+    """Override for your lab hardware setup."""
 
-class DoctestFilterBuilder(FilterBuilder):
-    def build_run_command(self, **kwargs) -> str:
-        # Returns: RUN: --wake --tc "pattern" --ts "pattern"
+    def on_sleep(self, test_name, duration_ms):
+        """Default: wait for USB-CDC port to disappear and reappear."""
 
-class UnityFilterBuilder(FilterBuilder):
-    def build_run_command(self, **kwargs) -> str:
-        # Returns: RUN: --test "pattern" --group "pattern"
+    def on_restart(self, test_name):
+        """Default: wait for port reconnect."""
+
+    def on_power_cycle(self, test_name):
+        """No default — user must implement for their hardware.
+        Examples: PPK2 power toggle, USB hub port control, RPi GPIO."""
+        raise NotImplementedError
+
+    def on_firmware_update(self, test_name, binary_path):
+        """Flash a new binary, wait for reboot."""
+        raise NotImplementedError
+```
+
+### Filter Syntax Abstraction
+
+The host translates from a generic filter format to framework-specific
+syntax:
+
+```python
+class DoctestFilterBuilder:
+    # RUN: --continue --tc "pattern" --ts "pattern"
+
+class UnityFilterBuilder:
+    # RUN: --test "pattern" --group "pattern"
 ```
 
 ---
@@ -289,48 +356,72 @@ from the protocol stream into the test's variables.
 
 ## Phase 4: Platform Expansion
 
+### Platform Abstraction (C++ Side)
+
+Each target platform provides implementations for restart, sleep, heap
+tracking, etc. via `etst::platform`:
+
+```cpp
+// etst/platform/esp32.h — provided by the library
+namespace etst::platform::esp32 {
+    void restart()     { esp_restart(); }
+    void sleep()       { esp_deep_sleep_start(); }
+    void lightsleep()  { esp_light_sleep_start(); }
+    size_t free_heap() { return esp_get_free_heap_size(); }
+}
+
+// etst/platform/stm32.h — future
+namespace etst::platform::stm32 {
+    void restart()     { NVIC_SystemReset(); }
+    void sleep()       { HAL_PWR_EnterSTANDBYMode(); }
+}
+```
+
+The active platform is selected at compile time (build flag or auto-detect).
+The orchestrator calls `etst::platform::restart()` etc. without knowing
+which platform is active.
+
 ### Zephyr
 
-Zephyr has its own test framework (`ztest`) with features that overlap with ETST:
-- Test suites and test cases
-- Setup/teardown hooks
-- Assertion macros
+Zephyr has its own test framework (`ztest`) with features that overlap:
+test suites, setup/teardown, assertion macros.
 
-**Investigation needed**: does Zephyr's test infrastructure handle sleep/wake
-cycles, serial disconnects, and multi-phase tests? If not, ETST's orchestration
-layer adds value. A `ztest_adapter.h` would emit ETST markers from ztest's
+**Investigation needed**: does ztest handle sleep/wake cycles, serial
+disconnects, and multi-phase tests? If not, ETST's orchestration layer
+adds value. A `ztest_adapter.h` would emit ETST markers from ztest's
 reporter hooks.
 
 ### Catch2
 
-Catch2 has `IStreamingReporter` which maps well to ETST's listener pattern.
-A `catch_adapter.h` could emit ETST markers from Catch2's reporter events.
-Filter syntax would differ (Catch2 uses `[tags]` not `--tc`/`--ts`).
+Catch2 has `IStreamingReporter` which maps to ETST's listener pattern.
+Filter syntax differs (Catch2 uses `[tags]` not `--tc`/`--ts`).
 
 ### Arduino IDE (No Build System)
 
 With the host abstraction (Phase 2), users could:
 1. Flash firmware via Arduino IDE
-2. Run tests via `python -m pio_test_runner --port COM3`
+2. Run tests via `python -m etst --port COM3`
 
-The firmware side already has zero PIO dependency — only the host side needs
-the standalone CLI.
+The firmware side already has zero PIO dependency — only the host side
+needs the standalone CLI.
 
 ---
 
-## What's NOT Changing (This Release)
-
-These are stable for the current release:
+## What's Stable (This Release)
 
 - **ETST wire protocol**: markers, CRC format, command structure
 - **C++ marker API**: `signal_ready()`, `signal_done()`, `signal_sleep()`,
-  `is_test_wake()`, `print_test_start()`, memory markers
+  `is_test_wake()`, memory markers
+- **Environment variables**: `ETST_*` names (old `PTR_*` accepted with
+  deprecation warning)
 - **test_custom_runner.py shim**: copy-to-project bootstrapper for PIO
-- **Weak function hooks**: `ptr_board_init()`, `ptr_after_cycle()`
 
-### Environment variable rename (future)
+### What Will Change (Next Release)
 
-The `PTR_*` environment variables (`PTR_TEST_CASE`, `PTR_POST_TEST`, etc.)
-still use the old prefix. These are user-facing and changing them breaks
-existing CI scripts and shell aliases. Rename to `ETST_*` in a future
-release with a deprecation period — accept both prefixes, warn on old.
+- **Namespaces**: `pio_test_runner` → `etst`, `ptr_doctest` → `etst::doctest`
+- **Include paths**: `<pio_test_runner/...>` → `<etst/...>` (symlink compat)
+- **Python package**: `pio_test_runner` → `etst`
+- **`is_test_wake()`** → `is_continuation()` (multi-phase generalization)
+- **`--wake` flag** → `--continue` (not sleep-specific)
+- **Entry point**: investigate zero-config `main.cpp` (blocked by
+  DOCTEST_CONFIG_IMPLEMENT link conflict)

@@ -1,6 +1,6 @@
 {
     "name": "pio-test-runner",
-    "version": "0.1.1",
+    "version": "0.3.0",
     "description": "Test runner protocol for PlatformIO embedded tests",
     "keywords": "testing, embedded, serial, crash-detection",
     "frameworks": [
