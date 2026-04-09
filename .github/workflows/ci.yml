@@ -22,7 +22,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          pip install "embedded-bridge @ git+https://github.com/m-mcgowan/embedded-bridge.git"
+          pip install -e ".[dev]"
 
       - name: Run tests
         run: pytest tests/ --ignore=tests/integration -v
