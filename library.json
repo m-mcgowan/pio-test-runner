@@ -1,7 +1,7 @@
 {
-    "name": "pio-test-runner",
-    "version": "0.2.0",
-    "description": "Test runner protocol for PlatformIO embedded tests",
+    "name": "embedded-test-runner",
+    "version": "0.3.0",
+    "description": "Test orchestration for embedded devices",
     "keywords": "testing, embedded, serial, crash-detection",
     "frameworks": [
         "arduino"
@@ -10,7 +10,7 @@
         "espressif32"
     ],
     "build": {
-        "srcDir": "src/pio_test_runner",
+        "srcDir": "src/etst",
         "srcFilter": [
             "-<*>"
         ],

@@ -1,10 +1,10 @@
-"""PlatformIO pre-script: configure pio-test-runner Python imports.
+"""PlatformIO pre-script: configure embedded-test-runner Python imports.
 
 Add to your platformio.ini extra_scripts:
 
-    extra_scripts = pre:path/to/pio-test-runner/scripts/pio_test_init.py
+    extra_scripts = pre:path/to/embedded-test-runner/scripts/pio_test_init.py
 
-This script adds pio-test-runner and embedded-bridge Python sources to
+This script adds embedded-test-runner and embedded-bridge Python sources to
 sys.path so test_custom_runner.py can import them without pip install.
 """
 
@@ -26,7 +26,7 @@ else:
 
 _lib_python_src = os.path.join(_lib_root, "src")
 
-# Add pio-test-runner Python source to sys.path
+# Add embedded-test-runner Python source to sys.path
 if os.path.isdir(_lib_python_src) and _lib_python_src not in sys.path:
     sys.path.insert(0, _lib_python_src)
 
