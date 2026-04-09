@@ -209,15 +209,50 @@ Loaded via `ETST_RUNNER=my_lab.test_runner` env var.
 Convenience wrappers `signal_sleep(ms)` and `signal_restart()` remain as
 shorthand — they call `signal_phase_end()` internally.
 
+## Design Constraint: Phases Require a Transition
+
+Phases currently require a device transition (sleep, restart, power cycle)
+because `signal_phase_end()` works by ending the current `context.run()`
+batch. On disruptive transitions this happens naturally (device reboots).
+
+Non-disruptive phases (host does work between phases while device stays
+running) would require a mechanism to pause `context.run()` mid-execution.
+Doctest doesn't support this natively — the test function must return or
+the device must restart for the next phase to begin.
+
+Non-disruptive phases are deferred to a future design. The workaround is
+to use `etst::RESTART` as the transition — the device reboots (fast on
+ESP32) and the host sends the next phase command.
+
+## Future Exploration: Distributed Test Fixtures
+
+A test fixture could span multiple devices: DUT + harness hardware (e.g.
+an ESP32 with GPIOs wired to the DUT for hardware-level monitoring,
+current measurement, power control). A single test body would describe
+what to verify, and the framework would distribute execution:
+
+- **Host** orchestrates the overall test
+- **DUT** runs test code, reports results
+- **Harness** toggles GPIOs, measures current, provides/disables power
+- A harness could run part of the test protocol itself, forwarding
+  commands to the DUT (host → harness → DUT serial chain)
+
+This is architecturally compatible with the phase/handler model — the
+harness is another device with its own PhaseHandler, and the host
+coordinates both. But the test authoring experience (one body of code
+that spans DUT and harness) needs its own design.
+
 ## Scope
 
 This spec covers:
 - Phase tracking API (firmware + host)
-- Phase transition protocol messages
+- Phase transition protocol messages (disruptive transitions only)
 - PhaseHandler dispatch mechanism
 - Migration path from current sleep/wake API
 
 Does NOT cover:
+- Non-disruptive phases (host work between phases, device stays running)
+- Distributed test fixtures (DUT + harness hardware)
 - `ETST:DATA` / `ETST:STATE` message implementation — separate spec
 - Platform namespace implementation — covered in rename spec
 - PIO deferred loading mechanism — PIO-specific implementation detail
