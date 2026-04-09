@@ -5,6 +5,16 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+### Changed
+- **Renamed**: pio-test-runner → embedded-test-runner, pio_test_runner → etst,
+  ptr_doctest → etst::doctest. Include path: `<etst/...>`. Clean break — no
+  backward-compat aliases.
+- **Config struct replaces weak hooks**: `ptr_board_init`, `ptr_after_cycle`,
+  `ptr_configure_context` removed. Use `etst::config` and `etst::doctest::config`.
+- **Listener renamed**: `PtrTestListener` → `EtstDoctestListener`.
+- **doctest_runner.h moved**: `<pio_test_runner/doctest_runner.h>` →
+  `<etst/doctest/runner.h>`.
+
 ## [0.2.0] — 2026-04-09
 
 ### Breaking Changes

@@ -1,6 +1,6 @@
 # Roadmap
 
-This document captures the forward direction for pio-test-runner: architectural
+This document captures the forward direction for embedded-test-runner: architectural
 refactoring, new capabilities, and platform expansion. The goal is to evolve from
 a PlatformIO-doctest-specific tool into a general-purpose embedded test
 orchestration framework.
@@ -24,11 +24,11 @@ orchestration framework.
 ┌─────────────────────────────┐   ┌─────────────────────────────┐
 │       Host (Python)         │   │     Firmware (C++)          │
 │                             │   │                             │
-│  runner.py                  │   │  doctest_runner.h           │
+│  runner.py                  │   │  etst/doctest/runner.h      │
 │    ├─ orchestration         │   │    ├─ command parsing       │
 │    ├─ sleep/wake mgmt       │   │    ├─ idle loop             │
 │    ├─ filter building ◄─────┼───┼──► ├─ filter application    │
-│    └─ result reporting      │   │    ├─ PtrTestListener       │
+│    └─ result reporting      │   │    ├─ EtstDoctestListener   │
 │                             │   │    └─ context.run()         │
 │  ready_run_protocol.py      │   │                             │
 │    └─ state machine         │   │  test_runner.h              │
@@ -45,7 +45,7 @@ orchestration framework.
 - Infrastructure: serial port, crash detection, disconnect handling, timing
 
 **What's coupled** (doctest-specific):
-- `doctest_runner.h` — monolith mixing orchestration with doctest internals
+- `etst/doctest/runner.h` — monolith mixing orchestration with doctest internals
 - `runner.py` — filter syntax (`--tc`/`--ts`), base class, command format
 - `ready_run_protocol.py` — assumes suite/name/timeout from TEST:START
 
@@ -97,9 +97,6 @@ include/etst/
   └─ unity/                  (future)
       └─ runner.h
 
-include/pio_test_runner/     backward-compat aliases (deprecated)
-  ├─ test_runner.h           → #include <etst/test_runner.h>
-  └─ doctest_runner.h        → #include <etst/doctest/runner.h>
 ```
 
 ### Multi-Phase Tests
@@ -194,17 +191,17 @@ These are currently exposed via `etst::doctest::config` callbacks and weak
 functions. The right abstraction may be a builder pattern, a config struct,
 or something else entirely. Premature abstraction here would box us in.
 
-### Include Path Rename
+### Include Path Rename (Done)
 
-| Current | Future | Notes |
-|---------|--------|-------|
-| `#include <pio_test_runner/...>` | `#include <etst/...>` | Symlink for backward compat |
-| `pio_test_runner::signal_sleep()` | `etst::signal_sleep()` | Namespace alias |
-| `ptr_doctest::config` | `etst::doctest::config` | Subnamespace |
-| `ptr_doctest::run_tests()` | `etst::doctest::run_tests()` | |
-| `PtrTestListener` | `EtstDoctestListener` | Framework-specific name |
+Renamed in v0.3.0 — clean break, no backward-compat aliases:
 
-Consumer code migrates via namespace aliases — old names continue to work.
+| Old | New |
+|-----|-----|
+| `#include <pio_test_runner/...>` | `#include <etst/...>` |
+| `pio_test_runner::signal_sleep()` | `etst::signal_sleep()` |
+| `ptr_doctest::config` | `etst::config` / `etst::doctest::config` |
+| `ptr_doctest::run_tests()` | `etst::doctest::run_tests()` |
+| `PtrTestListener` | `EtstDoctestListener` |
 
 ---
 
@@ -341,10 +338,10 @@ ETST:DATA tag="cal_offset" size=4 base64=AAAEAA== *XX    # host → firmware (re
 
 ```cpp
 // Send data to host (during test execution)
-pio_test_runner::send_data("cal_offset", &offset, sizeof(offset));
+etst::send_data("cal_offset", &offset, sizeof(offset));
 
 // Register a restore handler (called before test runs on wake)
-pio_test_runner::on_restore("cal_offset", [](const void* data, size_t len) {
+etst::on_restore("cal_offset", [](const void* data, size_t len) {
     memcpy(&offset, data, len);
 });
 ```
@@ -418,9 +415,6 @@ needs the standalone CLI.
 
 ### What Will Change (Next Release)
 
-- **Namespaces**: `pio_test_runner` → `etst`, `ptr_doctest` → `etst::doctest`
-- **Include paths**: `<pio_test_runner/...>` → `<etst/...>` (symlink compat)
-- **Python package**: `pio_test_runner` → `etst`
 - **`is_test_wake()`** → `is_continuation()` (multi-phase generalization)
 - **`--wake` flag** → `--continue` (not sleep-specific)
 - **Entry point**: investigate zero-config `main.cpp` (blocked by

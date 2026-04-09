@@ -1,4 +1,4 @@
-# pio-test-runner — Design
+# embedded-test-runner — Design
 
 PlatformIO test orchestration for embedded devices. Handles what
 `pio test` can't: devices that sleep, reset, disconnect, or crash
@@ -19,7 +19,7 @@ assumption constantly:
 - **Crashes** — a backtrace scrolls past; PIO doesn't distinguish
   "crash" from "test output"
 
-pio-test-runner extracts these patterns into a standalone PlatformIO
+embedded-test-runner extracts these patterns into a standalone PlatformIO
 plugin with reusable firmware headers.
 
 ## Architecture
@@ -27,7 +27,7 @@ plugin with reusable firmware headers.
 ```
 Host (Python)                          Device (C++ firmware)
 ─────────────                          ────────────────────
-EmbeddedTestRunner                     doctest_runner.h
+EmbeddedTestRunner                     etst/doctest/runner.h
   ├─ ReadyRunProtocol                    ├─ wait_for_command()
   │    state machine:                    │    sends ETST:READY
   │    READY→RUN→DONE                    │    receives RUN:/RUN_ALL
@@ -38,7 +38,7 @@ EmbeddedTestRunner                     doctest_runner.h
   ├─ TimingTracker                       │    signal_done()
   │    ETST:CASE:START                    ├─ idle_loop()
   ├─ RobustDoctestParser                 │    SLEEP/RESTART/re-run
-  │    doctest output → results          └─ test_runner.h
+  │    doctest output → results          └─ etst/test_runner.h
   └─ DisconnectHandler                       ETST: protocol emit helpers
        ETST:DISCONNECT/RECONNECT
 ```
@@ -51,7 +51,7 @@ PlatformIO manages build/upload. The runner is selected via:
 [env:esp32s3]
 test_framework = custom
 lib_deps =
-    https://github.com/m-mcgowan/pio-test-runner.git
+    https://github.com/m-mcgowan/embedded-test-runner.git
 ```
 
 A `test_custom_runner.py` shim imports `EmbeddedTestRunner` and PIO
@@ -71,10 +71,10 @@ connection (or the runner opens it directly for the custom framework).
 
 ## Core Components
 
-### PTR Protocol (`protocol.h`, `protocol.py`)
+### ETST Protocol (`protocol.h`, `protocol.py`)
 
 All protocol messages use the `ETST:` prefix with CRC-8 checksums.
-The firmware emits via `pio_test_runner::emit()`, the host validates
+The firmware emits via `etst::emit()`, the host validates
 via `validate_crc()`.
 
 | Message | Direction | Purpose |
@@ -119,7 +119,7 @@ PlatformIO test runner plugin. Key methods:
 - `stage_testing()` — main entry: opens serial, runs test cycles,
   handles sleep/wake loops, reports results
 - `_build_initial_command()` — combines `-a` program args with
-  `PTR_*` environment variables into a `RUN:` command
+  `ETST_*` environment variables into a `RUN:` command
 - `_run_test_cycle()` — single READY→RUN→DONE cycle with crash
   detection and hang monitoring
 
@@ -129,11 +129,11 @@ Manages disconnect/reconnect windows for devices that sleep, reset,
 or reconfigure during tests. The firmware controls the timing:
 
 ```cpp
-pio_test_runner::request_disconnect(5000);  // going away for 5s
+etst::request_disconnect(5000);  // going away for 5s
 Serial.end();
 // ... sleep / reset / reflash ...
 Serial.begin(115200);
-pio_test_runner::signal_reconnect();        // back
+etst::signal_reconnect();        // back
 ```
 
 ### CrashDetector (from embedded-bridge)
@@ -145,30 +145,40 @@ Detects device crashes from serial output patterns:
 - `E (NNNN) task_wdt:` — Task watchdog timeout
 - `Rebooting...` — Post-crash reboot
 
-### Doctest Runner (`doctest_runner.h`)
+### Doctest Runner (`etst/doctest/runner.h`)
 
 Firmware-side test harness for doctest. Provides:
 
 - `DOCTEST_SETUP()` / `DOCTEST_LOOP()` — call from Arduino setup/loop
-- `PtrTestListener` — doctest reporter emitting PTR markers
+- `EtstDoctestListener` — doctest reporter emitting ETST markers
 - `wait_for_command()` — READY/RUN handshake with CRC validation
 - `run_cycle()` — apply filters, run tests, signal done
 - `idle_loop()` — post-test command loop (SLEEP, RESTART, re-run)
 
-**Configuration hooks** (define before including `doctest_runner.h`):
+**Configuration:**
 
-| Macro | Signature | Purpose |
+Framework-agnostic (`etst::config`):
+
+| Field | Signature | Purpose |
 |-------|-----------|---------|
-| `PTR_BOARD_INIT` | `bool fn(Print&)` | Board setup before tests (return false to halt) |
-| `PTR_CONFIGURE_CONTEXT` | `void fn(doctest::Context&)` | Configure doctest context before run |
-| `PTR_AFTER_CYCLE` | `void fn()` | Called after each test cycle completes |
-| `PTR_READY_TIMEOUT_MS` | `uint32_t` | Max wait for host (default: 0 = forever) |
+| `board_init` | `bool fn(Print&)` | Board setup before tests (return false to halt) |
+| `after_cycle` | `void fn()` | Called after each test cycle completes |
+| `ready_timeout_ms` | `uint32_t` | Max wait for host (default: 0 = forever) |
+| `platform_restart` | `void fn()` | Custom restart (default: `esp_restart()`) |
+| `platform_sleep` | `void fn()` | Custom deep sleep (default: `esp_deep_sleep_start()`) |
+| `platform_lightsleep` | `void fn()` | Custom light sleep (default: `esp_light_sleep_start()`) |
+
+Doctest-specific (`etst::doctest::config`):
+
+| Field | Signature | Purpose |
+|-------|-----------|---------|
+| `configure` | `void fn(doctest::Context&)` | Configure doctest context before run |
 
 ### Test Filtering
 
 Two-phase filter processing in `apply_run_filters()`:
 
-1. **PTR-specific flags** (`--unskip-tc`, `--skip-tc`, etc.) modify
+1. **ETST-specific flags** (`--unskip-tc`, `--skip-tc`, etc.) modify
    `m_skip` on the doctest test registry. Processed left-to-right
    so later flags override earlier ones.
 2. **Remaining flags** passed to `context.applyCommandLine()` for
@@ -194,7 +204,7 @@ When a test enters deep sleep:
 ## Project Structure
 
 ```
-pio-test-runner/
+embedded-test-runner/
 ├── pyproject.toml               # Python package config (setuptools_scm)
 ├── library.json                 # PlatformIO library metadata
 ├── LICENSE
@@ -203,12 +213,13 @@ pio-test-runner/
 ├── docs/
 │   └── design.md                # this file
 ├── include/
-│   └── pio_test_runner/
+│   └── etst/
 │       ├── protocol.h           # CRC-8 wire format, emit() helper
 │       ├── test_runner.h        # firmware protocol API (disconnect, sleep, memory)
-│       └── doctest_runner.h     # doctest integration (filters, READY/RUN, idle loop)
+│       └── doctest/
+│           └── runner.h         # doctest integration (filters, READY/RUN, idle loop)
 ├── src/
-│   └── pio_test_runner/
+│   └── etst/
 │       ├── __init__.py          # exports EmbeddedTestRunner
 │       ├── runner.py            # PIO plugin: EmbeddedTestRunner
 │       ├── protocol.py          # CRC-8 format/validate, line parsing

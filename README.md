@@ -1,8 +1,8 @@
-# pio-test-runner
+# embedded-test-runner
 
 Test orchestration for embedded [doctest](https://github.com/doctest/doctest) suites running on ESP32 with PlatformIO.
 
-Writing embedded tests is usually fairly straightforward. Running them reliably is the hard part — the serial port vanishes during deep sleep, firmware reboots mid-test to verify wake behavior, and large test suites fragment the heap so later tests that work in isolation suddenly crash. `pio-test-runner` handles the hard part: it reconnects after sleep, resumes where it left off, tracks per-test memory, and catches crashes and hangs — so you write tests, not infrastructure.
+Writing embedded tests is usually fairly straightforward. Running them reliably is the hard part — the serial port vanishes during deep sleep, firmware reboots mid-test to verify wake behavior, and large test suites fragment the heap so later tests that work in isolation suddenly crash. `embedded-test-runner` handles the hard part: it reconnects after sleep, resumes where it left off, tracks per-test memory, and catches crashes and hangs — so you write tests, not infrastructure.
 
 - Reconnects automatically after deep sleep, restart, or USB disconnect
 - Hang detection with configurable timeouts
@@ -26,7 +26,7 @@ build_flags =
     -DDOCTEST_CONFIG_NO_POSIX_SIGNALS     ; ESP32 has no POSIX signals
     -DDOCTEST_THREAD_LOCAL=               ; newlib thread_local workaround
 lib_deps =
-    https://github.com/m-mcgowan/pio-test-runner.git
+    https://github.com/m-mcgowan/embedded-test-runner.git
     doctest/doctest@^2.4.11
 ```
 
@@ -39,10 +39,10 @@ See [tests/integration/platformio.ini](tests/integration/platformio.ini) for a c
 ```cpp
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
-#include <pio_test_runner/doctest_runner.h>
+#include <etst/doctest/runner.h>
 
-void setup() { ptr_doctest::run_tests(); }
-void loop()  { ptr_doctest::idle_loop(); }
+void setup() { etst::doctest::run_tests(); }
+void loop()  { etst::doctest::idle_loop(); }
 ```
 
 **4.** Write tests:
@@ -98,8 +98,6 @@ ETST_SUITE='*SensorTests*' pio test -e my_board
 | `--skip-ts` | `ETST_SKIP_SUITE` | Force-skip matching test suites |
 
 Patterns support `*` wildcards (doctest globbing). Filters from `-a` and environment variables are combined.
-
-> **Note:** The old `PTR_*` environment variable names still work but log a deprecation warning. Migrate to `ETST_*` when convenient.
 
 ### Multiple patterns and quoting
 
@@ -160,19 +158,19 @@ Tests can trigger deep sleep mid-execution. The runner handles the cycle automat
 ```cpp
 #include <doctest.h>
 #include <esp_sleep.h>
-#include <pio_test_runner/test_runner.h>
+#include <etst/test_runner.h>
 
 TEST_SUITE("MyTests") {
 
 TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
-    if (pio_test_runner::is_test_wake()) {
+    if (etst::is_test_wake()) {
         // Phase 2: woke from deep sleep — verify wake cause
         CHECK(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER);
     } else {
         // Phase 1: pre-sleep checks, then sleep
         CHECK(some_pre_sleep_condition());
 
-        pio_test_runner::signal_sleep(3000);  // tell runner: sleeping for 3s
+        etst::signal_sleep(3000);  // tell runner: sleeping for 3s
         Serial.flush();
         delay(100);
 
@@ -196,12 +194,12 @@ TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
 
 ### Firmware callbacks
 
-Set callbacks on `ptr_doctest::config` before calling `run_tests()`:
+Set callbacks on `etst::config` before calling `run_tests()`:
 
 ```cpp
 #define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
-#include <pio_test_runner/doctest_runner.h>
+#include <etst/doctest/runner.h>
 
 static bool my_board_init(Print& log) {
     // mount filesystem, detect board revision, etc.
@@ -209,25 +207,30 @@ static bool my_board_init(Print& log) {
 }
 
 void setup() {
-    ptr_doctest::config.board_init = my_board_init;
-    ptr_doctest::config.ready_timeout_ms = 30000;  // standalone mode
-    ptr_doctest::run_tests();
+    etst::config.board_init = my_board_init;
+    etst::config.ready_timeout_ms = 30000;  // standalone mode
+    etst::doctest::run_tests();
 }
 
 void loop() {
-    ptr_doctest::idle_loop();
+    etst::doctest::idle_loop();
 }
 ```
 
 | Callback | Signature | Description |
 |----------|-----------|-------------|
 | `board_init` | `bool fn(Print&)` | Board setup before tests. Return false to halt. |
-| `configure_context` | `void fn(doctest::Context&)` | Configure doctest options before each cycle. |
 | `after_cycle` | `void fn()` | Called after each test cycle completes. |
 | `ready_timeout_ms` | `uint32_t` | Max wait for host (0 = forever). Set for standalone operation. |
 | `platform_restart` | `void fn()` | Custom restart (default: `esp_restart()`). |
 | `platform_sleep` | `void fn()` | Custom deep sleep (default: `esp_deep_sleep_start()`). |
 | `platform_lightsleep` | `void fn()` | Custom light sleep (default: `esp_light_sleep_start()`). |
+
+Doctest-specific configuration via `etst::doctest::config`:
+
+| Callback | Signature | Description |
+|----------|-----------|-------------|
+| `configure` | `void fn(doctest::Context&)` | Configure doctest options before each cycle. |
 
 ### Host-side environment variables
 
@@ -262,8 +265,8 @@ TEST_CASE("slow but bounded" * doctest::timeout(60)) {
 
 ```cpp
 TEST_CASE("formats storage") {
-    pio_test_runner::signal_busy(45000);  // 45s — don't kill me
-    format_filesystem();                   // no serial output during this
+    etst::signal_busy(45000);  // 45s — don't kill me
+    format_filesystem();        // no serial output during this
     CHECK(fs_mounted());
 }
 ```
