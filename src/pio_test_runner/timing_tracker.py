@@ -1,4 +1,4 @@
-"""Per-test duration tracking from ``ETST:TEST:START`` markers.
+"""Per-test duration tracking from ``ETST:CASE:START`` markers.
 
 Parses test start markers emitted by the test framework's listener
 and tracks wall-clock duration for each test case.
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class TestTimingTracker:
-    """Tracks per-test duration from ``ETST:TEST:START`` markers.
+    """Tracks per-test duration from ``ETST:CASE:START`` markers.
 
-    Each ``ETST:TEST:START suite=... name=...`` line starts a timer for
+    Each ``ETST:CASE:START suite=... name=...`` line starts a timer for
     that test. The timer stops when the next test starts or when
     ``finalize()`` is called.
 
@@ -46,7 +46,7 @@ class TestTimingTracker:
         )
 
         parsed = parse_line(line)
-        if parsed and parsed.tag == "TEST:START" and parsed.crc_valid is not False:
+        if parsed and parsed.tag == "CASE:START" and parsed.crc_valid is not False:
             payload = parse_payload(parsed.payload_str)
             suite = payload.get("suite", "")
             name = payload.get("name", "")

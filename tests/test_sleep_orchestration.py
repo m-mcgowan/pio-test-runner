@@ -159,14 +159,14 @@ class TestSingleSleepCycle:
       Phase 1 (first boot):
         Device: ETST:READY
         Runner: RUN_ALL
-        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:CASE:START suite="DeepSleep" name="sleep test"
         Device: ETST:SLEEP ms=3000
         Runner: (closes serial, no post-test command)
 
       Phase 2 (after wake):
         Device: ETST:READY
         Runner: RUN: --tc "sleep test"
-        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:CASE:START suite="DeepSleep" name="sleep test"
         Device: ETST:DONE
         Runner: (closes serial, no post-test command — intermediate cycle)
 
@@ -182,14 +182,14 @@ class TestSingleSleepCycle:
         # Phase 1: boot -> run -> sleep
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: wake -> resume sleeping test -> done
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:DONE"),
         ])
 
@@ -246,21 +246,21 @@ class TestSleepWithResumeAfter:
       Phase 1 (first boot):
         Device: ETST:READY
         Runner: RUN_ALL
-        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:CASE:START suite="DeepSleep" name="sleep test"
         Device: ETST:SLEEP ms=3000
         Runner: (closes serial)
 
       Phase 2 (after wake):
         Device: ETST:READY
         Runner: RUN: --tc "sleep test"
-        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:CASE:START suite="DeepSleep" name="sleep test"
         Device: ETST:DONE
         Runner: (closes serial, intermediate cycle)
 
       Phase 3 (RESUME_AFTER directly, no restart):
         Device: ETST:READY
         Runner: RESUME_AFTER: sleep test
-        Device: ETST:TEST:START suite="Other" name="normal test"
+        Device: ETST:CASE:START suite="Other" name="normal test"
         Device: ETST:DONE
     """
 
@@ -270,21 +270,21 @@ class TestSleepWithResumeAfter:
         # Phase 1: boot -> run -> sleep
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: wake -> resume sleeping test -> done
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:DONE"),
         ])
 
         # Phase 3: RESUME_AFTER directly -> remaining tests -> done
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Other" name="normal test"'),
+            _crc('ETST:CASE:START suite="Other" name="normal test"'),
             _crc("ETST:DONE"),
         ])
 
@@ -337,31 +337,31 @@ class TestTwoConsecutiveSleepTests:
       Phase 1: RUN_ALL -> test_a sleeps
         Device: ETST:READY
         Runner: RUN_ALL
-        Device: ETST:TEST:START suite="Sleep" name="test_a"
+        Device: ETST:CASE:START suite="Sleep" name="test_a"
         Device: ETST:SLEEP ms=2000
 
       Phase 2: wake -> test_a Phase 2 completes
         Device: ETST:READY
         Runner: RUN: --tc "test_a"
-        Device: ETST:TEST:START suite="Sleep" name="test_a"
+        Device: ETST:CASE:START suite="Sleep" name="test_a"
         Device: ETST:DONE
 
       RESUME_AFTER test_a -> test_b sleeps (no restart)
         Device: ETST:READY
         Runner: RESUME_AFTER: test_a
-        Device: ETST:TEST:START suite="Sleep" name="test_b"
+        Device: ETST:CASE:START suite="Sleep" name="test_b"
         Device: ETST:SLEEP ms=3000
 
       Phase 4: wake -> test_b Phase 2 completes
         Device: ETST:READY
         Runner: RUN: --tc "test_b"
-        Device: ETST:TEST:START suite="Sleep" name="test_b"
+        Device: ETST:CASE:START suite="Sleep" name="test_b"
         Device: ETST:DONE
 
       RESUME_AFTER test_b -> test_c runs normally (no restart)
         Device: ETST:READY
         Runner: RESUME_AFTER: test_b
-        Device: ETST:TEST:START suite="Other" name="test_c"
+        Device: ETST:CASE:START suite="Other" name="test_c"
         Device: ETST:DONE
     """
 
@@ -371,35 +371,35 @@ class TestTwoConsecutiveSleepTests:
         # Phase 1: boot -> RUN_ALL -> test_a sleeps
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="test_a"'),
+            _crc('ETST:CASE:START suite="Sleep" name="test_a"'),
             _crc("ETST:SLEEP ms=2000"),
         ])
 
         # Phase 2: wake -> RUN: --tc "test_a" -> test_a Phase 2 completes
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="test_a"'),
+            _crc('ETST:CASE:START suite="Sleep" name="test_a"'),
             _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER test_a -> test_b starts and sleeps (no restart)
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="test_b"'),
+            _crc('ETST:CASE:START suite="Sleep" name="test_b"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 4: wake -> RUN: --tc "test_b" -> test_b Phase 2 completes
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="test_b"'),
+            _crc('ETST:CASE:START suite="Sleep" name="test_b"'),
             _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER test_b -> test_c runs normally -> done (no restart)
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Other" name="test_c"'),
+            _crc('ETST:CASE:START suite="Other" name="test_c"'),
             _crc("ETST:DONE"),
         ])
 
@@ -462,14 +462,14 @@ class TestFailurePropagationAcrossSleepCycles:
         # Phase 1: sleep test
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: sleep test Phase 2 passes
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             "  CHECK( cause == ESP_SLEEP_WAKEUP_TIMER ) is correct!",
             _crc("ETST:DONE"),
         ])
@@ -477,7 +477,7 @@ class TestFailurePropagationAcrossSleepCycles:
         # RESUME_AFTER: remaining test FAILS
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sensor" name="calibration check"'),
+            _crc('ETST:CASE:START suite="Sensor" name="calibration check"'),
             "test/test_sensor.cpp:55: ERROR: CHECK( offset < 10 ) is NOT correct!",
             "  values: CHECK( 42 < 10 )",
             _crc("ETST:DONE"),
@@ -526,14 +526,14 @@ class TestFailurePropagationAcrossSleepCycles:
         # Phase 1: sleep test
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: sleep test passes
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="DeepSleep" name="sleep test"'),
             "  CHECK( cause == ESP_SLEEP_WAKEUP_TIMER ) is correct!",
             _crc("ETST:DONE"),
         ])
@@ -541,7 +541,7 @@ class TestFailurePropagationAcrossSleepCycles:
         # RESUME_AFTER: remaining test passes
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sensor" name="calibration"'),
+            _crc('ETST:CASE:START suite="Sensor" name="calibration"'),
             "  CHECK( offset < 10 ) is correct!",
             _crc("ETST:DONE"),
         ])
@@ -606,14 +606,14 @@ class TestPhase2CommandFormat:
         # Phase 1: test with spaces in name triggers sleep
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc('ETST:CASE:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
             _crc("ETST:SLEEP ms=0"),
         ])
 
         # Phase 2: wake -> resume
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc('ETST:CASE:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
             _crc("ETST:DONE"),
         ])
 
@@ -672,13 +672,13 @@ class TestPhase2CommandFormat:
 
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="Sleep" name="sleep test"'),
             _crc("ETST:SLEEP ms=3000"),
         ])
 
         mock_ser.add_phase([
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Sleep" name="sleep test"'),
+            _crc('ETST:CASE:START suite="Sleep" name="sleep test"'),
             _crc("ETST:DONE"),
         ])
 

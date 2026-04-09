@@ -91,7 +91,7 @@ class ReadyRunProtocol:
             return
 
         # Track test names for sleep attribution and resume-after
-        if parsed.tag == "TEST:START":
+        if parsed.tag == "CASE:START":
             payload = parse_payload(parsed.payload_str)
             suite = payload.get("suite", "")
             name = payload.get("name", "")
@@ -107,7 +107,7 @@ class ReadyRunProtocol:
             self._current_test_timeout = int(timeout) if timeout else 0
 
         # Test count report
-        elif parsed.tag == "TESTS":
+        elif parsed.tag == "COUNTS":
             payload = parse_payload(parsed.payload_str)
             self._test_total = int(payload.get("total", 0))
             self._test_skip = int(payload.get("skip", 0))
@@ -179,12 +179,12 @@ class ReadyRunProtocol:
 
     @property
     def current_test_suite(self) -> str:
-        """Current test suite name from ETST:TEST:START markers."""
+        """Current test suite name from ETST:CASE:START markers."""
         return self._current_test_suite
 
     @property
     def current_test_name(self) -> str:
-        """Current test name from ETST:TEST:START markers."""
+        """Current test name from ETST:CASE:START markers."""
         return self._current_test_name
 
     @property

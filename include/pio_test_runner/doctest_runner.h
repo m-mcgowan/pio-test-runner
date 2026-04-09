@@ -4,7 +4,7 @@
  *        pio-test-runner protocol integration.
  *
  * Provides:
- *   - PtrTestListener: doctest reporter that emits ETST:TEST:START
+ *   - PtrTestListener: doctest reporter that emits ETST:CASE:START
  *     and ETST:MEM:* markers (parsed by the Python host)
  *   - READY/RUN/DONE protocol handshake with the host
  *   - Compile-time filter support via TEST_FILTER_* macros
@@ -69,7 +69,7 @@ namespace pio_test_runner { inline bool _ptr_is_wake_cycle = false; }
  * @brief Doctest reporter that prints test names and memory stats.
  *
  * Emits markers consumed by the pio-test-runner Python host:
- *   - ``ETST:TEST:START suite=... name=...`` — test timing (TestTimingTracker)
+ *   - ``ETST:CASE:START suite=... name=...`` — test timing (TestTimingTracker)
  *   - ``ETST:MEM:BEFORE/AFTER`` — heap tracking (MemoryTracker)
  */
 struct PtrTestListener : doctest::IReporter {

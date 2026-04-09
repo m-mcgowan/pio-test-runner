@@ -11,7 +11,7 @@ orchestration framework.
   Refactoring happens behind the current interface. If the DX has rough edges,
   fix those before stabilizing — breaking changes are cheaper now than later.
 - **Protocol is the contract**: the PTR wire protocol (ETST:READY, ETST:DONE,
-  ETST:TEST:START, etc.) is framework-agnostic by design. Any test framework
+  ETST:CASE:START, etc.) is framework-agnostic by design. Any test framework
   that emits these markers gets full orchestration support for free.
 - **Host knows more than firmware**: the host has unlimited memory, network
   access, and persistent storage. Push complexity to the host where possible

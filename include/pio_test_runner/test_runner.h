@@ -44,7 +44,7 @@ inline void signal_ready() {
 
 /// Report test counts before execution begins.
 inline void print_test_count(unsigned total, unsigned skip, unsigned run) {
-    emit(Serial, "ETST:TESTS total=%u skip=%u run=%u", total, skip, run);
+    emit(Serial, "ETST:COUNTS total=%u skip=%u run=%u", total, skip, run);
 }
 
 /// Signal that all tests have completed.
@@ -156,12 +156,12 @@ inline void print_mem_warning(int64_t leaked_bytes) {
 
 /// Print a test start marker (parsed by TestTimingTracker receiver).
 inline void print_test_start(const char* suite, const char* name) {
-    emit(Serial, "ETST:TEST:START suite=\"%s\" name=\"%s\"", suite, name);
+    emit(Serial, "ETST:CASE:START suite=\"%s\" name=\"%s\"", suite, name);
 }
 
 /// Print a test start marker with timeout annotation.
 inline void print_test_start(const char* suite, const char* name, float timeout_s) {
-    emit(Serial, "ETST:TEST:START suite=\"%s\" name=\"%s\" timeout=%.0f",
+    emit(Serial, "ETST:CASE:START suite=\"%s\" name=\"%s\" timeout=%.0f",
          suite, name, timeout_s);
 }
 

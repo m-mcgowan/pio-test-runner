@@ -55,7 +55,7 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="OrientationSleep" name="Orientation alert across sleep"'))
+        p.feed(_crc('ETST:CASE:START suite="OrientationSleep" name="Orientation alert across sleep"'))
         p.feed(_crc("ETST:SLEEP ms=15000"))
         assert p.sleeping_test_name == "Orientation alert across sleep"
 
@@ -63,7 +63,7 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="GPS" name="Navigation rate test"'))
+        p.feed(_crc('ETST:CASE:START suite="GPS" name="Navigation rate test"'))
         assert p.current_test_suite == "GPS"
         assert p.current_test_name == "Navigation rate test"
         assert p.current_test_full == "GPS/Navigation rate test"
@@ -72,7 +72,7 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="GPS" name="Navigation rate test" timeout=30'))
+        p.feed(_crc('ETST:CASE:START suite="GPS" name="Navigation rate test" timeout=30'))
         assert p.current_test_suite == "GPS"
         assert p.current_test_name == "Navigation rate test"
 
@@ -90,7 +90,7 @@ class TestReadyRunProtocol:
         # Cold boot
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="Suite" name="sleep test"'))
+        p.feed(_crc('ETST:CASE:START suite="Suite" name="sleep test"'))
         p.feed(_crc("ETST:SLEEP ms=5000"))
         assert p.state == ProtocolState.SLEEPING
 
@@ -118,7 +118,7 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="Suite" name="test"'))
+        p.feed(_crc('ETST:CASE:START suite="Suite" name="test"'))
         p.feed(_crc("ETST:SLEEP ms=5000"))
         p.reset()
         assert p.state == ProtocolState.WAITING_FOR_READY
@@ -147,17 +147,17 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_b"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_c"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_b"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_c"'))
         assert p.completed_tests == ["S/test_a", "S/test_b", "S/test_c"]
 
     def test_completed_tests_no_duplicates(self):
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
         assert p.completed_tests == ["S/test_a"]
 
     # ── Per-test timeout ────────────────────────────────────────────
@@ -166,32 +166,32 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="HW" name="slow boot" timeout=120'))
+        p.feed(_crc('ETST:CASE:START suite="HW" name="slow boot" timeout=120'))
         assert p.current_test_timeout == 120
 
     def test_timeout_zero_when_not_specified(self):
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="HW" name="fast test"'))
+        p.feed(_crc('ETST:CASE:START suite="HW" name="fast test"'))
         assert p.current_test_timeout == 0
 
     def test_timeout_updates_per_test(self):
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="slow" timeout=60'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="slow" timeout=60'))
         assert p.current_test_timeout == 60
-        p.feed(_crc('ETST:TEST:START suite="S" name="fast" timeout=5'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="fast" timeout=5'))
         assert p.current_test_timeout == 5
-        p.feed(_crc('ETST:TEST:START suite="S" name="default"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="default"'))
         assert p.current_test_timeout == 0
 
     def test_timeout_reset_on_cycle_reset(self):
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="t" timeout=30'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="t" timeout=30'))
         assert p.current_test_timeout == 30
         p.reset()
         assert p.current_test_timeout == 0
@@ -210,9 +210,9 @@ class TestReadyRunProtocol:
         assert p.state == ProtocolState.RUNNING
 
         # Simulate test output
-        p.feed(_crc('ETST:TEST:START suite="Suite" name="test_1" timeout=10'))
+        p.feed(_crc('ETST:CASE:START suite="Suite" name="test_1" timeout=10'))
         p.feed("test line output")
-        p.feed(_crc('ETST:TEST:START suite="Suite" name="test_2"'))
+        p.feed(_crc('ETST:CASE:START suite="Suite" name="test_2"'))
         assert p.state == ProtocolState.RUNNING
         assert p.completed_tests == ["Suite/test_1", "Suite/test_2"]
 
@@ -245,8 +245,8 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="sleep_test"'))
         p.feed(_crc("ETST:SLEEP ms=5000"))
         p.reset()
         assert p.completed_tests == ["S/test_a", "S/sleep_test"]
@@ -255,7 +255,7 @@ class TestReadyRunProtocol:
         p = ReadyRunProtocol()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
         p.reset_all()
         assert p.completed_tests == []
         assert p.state == ProtocolState.WAITING_FOR_READY
@@ -266,8 +266,8 @@ class TestReadyRunProtocol:
         # Cycle 1: run until sleep
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_a"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_a"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="sleep_test"'))
         p.feed(_crc("ETST:SLEEP ms=5000"))
         assert p.completed_tests == ["S/test_a", "S/sleep_test"]
 
@@ -276,7 +276,7 @@ class TestReadyRunProtocol:
         p.reset()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="sleep_test"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="sleep_test"'))
         p.feed(_crc("ETST:DONE"))
         # sleep_test seen again but not duplicated
         assert p.completed_tests == ["S/test_a", "S/sleep_test"]
@@ -285,7 +285,7 @@ class TestReadyRunProtocol:
         p.reset()
         p.feed(_crc("ETST:READY"))
         p.command_sent()
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_b"'))
-        p.feed(_crc('ETST:TEST:START suite="S" name="test_c"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_b"'))
+        p.feed(_crc('ETST:CASE:START suite="S" name="test_c"'))
         p.feed(_crc("ETST:DONE"))
         assert p.completed_tests == ["S/test_a", "S/sleep_test", "S/test_b", "S/test_c"]

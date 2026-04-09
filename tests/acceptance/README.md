@@ -43,8 +43,8 @@ for acceptance tests.
 | Skip flag ordering | test_filtering.py | Later flags override earlier on same test |
 | Combined filters | test_filtering.py | Multiple filters compose correctly |
 | Memory tracking | test_protocol_features.py | `ETST:MEM:BEFORE/AFTER` markers parsed |
-| Timing tracking | test_protocol_features.py | `ETST:TEST:START` with suite/name/timeout |
-| Test counts | test_protocol_features.py | `ETST:TESTS total=N skip=N run=N` |
+| Timing tracking | test_protocol_features.py | `ETST:CASE:START` with suite/name/timeout |
+| Test counts | test_protocol_features.py | `ETST:COUNTS total=N skip=N run=N` |
 | Deep sleep | test_sleep.py | Sleep → reconnect → resume → remaining tests |
 
 ### Full pipeline (via `pio test` subprocess)

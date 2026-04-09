@@ -83,7 +83,7 @@ class ParsedTag:
     """Result of parsing a ETST: protocol line.
 
     Attributes:
-        tag: Full tag string (e.g. "READY", "MEM:BEFORE", "TEST:START").
+        tag: Full tag string (e.g. "READY", "MEM:BEFORE", "CASE:START").
         payload_str: Raw payload string after the tag (may be empty).
         crc_valid: True if CRC matched, False if mismatched, None if no CRC.
         raw: The original line.
@@ -160,16 +160,16 @@ def msg_done() -> str:
     return format_crc(f"{PREFIX}DONE")
 
 
-def msg_tests(total: int, skip: int = 0, run: int | None = None) -> str:
-    """Build ETST:TESTS message (with CRC)."""
+def msg_counts(total: int, skip: int = 0, run: int | None = None) -> str:
+    """Build ETST:COUNTS message (with CRC)."""
     if run is None:
         run = total - skip
-    return format_crc(f"{PREFIX}TESTS total={total} skip={skip} run={run}")
+    return format_crc(f"{PREFIX}COUNTS total={total} skip={skip} run={run}")
 
 
-def msg_test_start(suite: str, name: str, timeout: int | None = None) -> str:
-    """Build ETST:TEST:START message (with CRC)."""
-    payload = f'{PREFIX}TEST:START suite="{suite}" name="{name}"'
+def msg_case_start(suite: str, name: str, timeout: int | None = None) -> str:
+    """Build ETST:CASE:START message (with CRC)."""
+    payload = f'{PREFIX}CASE:START suite="{suite}" name="{name}"'
     if timeout is not None:
         payload += f" timeout={timeout}"
     return format_crc(payload)

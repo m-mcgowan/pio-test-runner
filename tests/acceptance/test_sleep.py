@@ -103,8 +103,8 @@ class TestDeepSleep:
         assert m, f"Could not parse sleep duration from: {sleep_line[0]}"
         sleep_ms = int(m.group(1))
 
-        # Extract sleeping test name from ETST:TEST:START before SLEEP
-        test_starts = [l for l in lines if "ETST:TEST:START" in l]
+        # Extract sleeping test name from ETST:CASE:START before SLEEP
+        test_starts = [l for l in lines if "ETST:CASE:START" in l]
         assert test_starts, "No test started before sleep"
         m = re.search(r'name="([^"]*)"', test_starts[-1])
         sleeping_test = m.group(1)

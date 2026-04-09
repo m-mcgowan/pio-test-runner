@@ -27,10 +27,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
   a specified duration; host extends hang timeout accordingly.
 - **`ETST:RESTART` protocol message** — firmware signals an imminent software
   restart; host handles reconnection like a sleep cycle.
-- **Per-test timeout annotation** — `ETST:TEST:START` now includes
+- **Per-test timeout annotation** — `ETST:CASE:START` now includes
   `timeout=N` from `doctest::timeout(N)` decorators for host-side
   enforcement.
-- **Test count reporting** — `ETST:TESTS total=N skip=N run=N` emitted
+- **Test count reporting** — `ETST:COUNTS total=N skip=N run=N` emitted
   before test execution begins.
 - **SLEEP command** — host sends SLEEP after test completion to prevent
   battery drain on idle devices.

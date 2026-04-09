@@ -104,7 +104,7 @@ def send_command(ser, command, timeout=120):
 
         # Parse test start markers
         m = re.search(
-            r'ETST:TEST:START\s+suite="([^"]*)"\s+name="([^"]*)"(?:\s+timeout=(\d+))?',
+            r'ETST:CASE:START\s+suite="([^"]*)"\s+name="([^"]*)"(?:\s+timeout=(\d+))?',
             line,
         )
         if m:

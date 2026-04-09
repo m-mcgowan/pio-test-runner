@@ -1,8 +1,8 @@
 /**
  * @file test_timing.cpp
- * @brief Tests that exercise the ETST:TEST:START timing pipeline.
+ * @brief Tests that exercise the ETST:CASE:START timing pipeline.
  *
- * PtrTestListener emits ETST:TEST:START markers that the Python
+ * PtrTestListener emits ETST:CASE:START markers that the Python
  * TestTimingTracker uses to measure per-test duration. The "slow test"
  * should appear in the slow tests report (>5s threshold).
  */

@@ -60,10 +60,10 @@ class TestParseLine:
         assert parsed.crc_valid is True
 
     def test_tag_with_quoted_payload(self):
-        line = format_crc('ETST:TEST:START suite="My Suite" name="test one"')
+        line = format_crc('ETST:CASE:START suite="My Suite" name="test one"')
         parsed = parse_line(line)
         assert parsed is not None
-        assert parsed.tag == "TEST:START"
+        assert parsed.tag == "CASE:START"
         assert 'suite="My Suite"' in parsed.payload_str
         assert parsed.crc_valid is True
 
@@ -125,8 +125,8 @@ class TestParseLine:
             "ETST:MEM:BEFORE free=200000 min=180000",
             "ETST:MEM:AFTER free=199800 delta=-200 min=179800",
             "ETST:MEM:WARN leaked=8452",
-            'ETST:TEST:START suite="Protocol" name="basic arithmetic"',
-            'ETST:TEST:START suite="Timing" name="slow test" timeout=30',
+            'ETST:CASE:START suite="Protocol" name="basic arithmetic"',
+            'ETST:CASE:START suite="Timing" name="slow test" timeout=30',
         ]
         for content in tags:
             line = format_crc(content)

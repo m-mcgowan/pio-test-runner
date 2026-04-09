@@ -36,7 +36,7 @@ EmbeddedTestRunner                     doctest_runner.h
   ├─ MemoryTracker                       │    modify_skip (unskip/skip)
   │    ETST:MEM:BEFORE/AFTER              │    context.run()
   ├─ TimingTracker                       │    signal_done()
-  │    ETST:TEST:START                    ├─ idle_loop()
+  │    ETST:CASE:START                    ├─ idle_loop()
   ├─ RobustDoctestParser                 │    SLEEP/RESTART/re-run
   │    doctest output → results          └─ test_runner.h
   └─ DisconnectHandler                       ETST: protocol emit helpers
@@ -83,8 +83,8 @@ via `validate_crc()`.
 | `RUN_ALL` | Host→Device | Run all tests |
 | `RUN: <flags>` | Host→Device | Run with filters |
 | `RESUME_AFTER: <name>` | Host→Device | Skip tests up to name |
-| `ETST:TESTS total=N skip=N run=N` | Device→Host | Test count before execution |
-| `ETST:TEST:START suite=".." name=".."` | Device→Host | Test timing marker |
+| `ETST:COUNTS total=N skip=N run=N` | Device→Host | Test count before execution |
+| `ETST:CASE:START suite=".." name=".."` | Device→Host | Test timing marker |
 | `ETST:MEM:BEFORE free=N min=N largest=N` | Device→Host | Heap before test |
 | `ETST:MEM:AFTER free=N delta=N min=N largest=N` | Device→Host | Heap after test |
 | `ETST:DONE` | Device→Host | All tests complete |

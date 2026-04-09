@@ -62,12 +62,12 @@ DOCTEST_SESSION_PASS = [
     # (runner sends RUN_ALL here — feed_session calls command_sent)
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Navigation rate test"'),
+    _crc('ETST:CASE:START suite="GPS" name="Navigation rate test"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( nav_rate == 5 ) is correct!",
     _crc("ETST:MEM:AFTER free=199500 delta=-500 min=179000"),
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Satellite count"'),
+    _crc('ETST:CASE:START suite="GPS" name="Satellite count"'),
     _crc("ETST:MEM:BEFORE free=199500 min=179000"),
     "  CHECK( sat_count >= 4 ) is correct!",
     _crc("ETST:MEM:AFTER free=199000 delta=-500 min=178500"),
@@ -81,7 +81,7 @@ DOCTEST_SESSION_LEAK = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="Mem" name="leaky test"'),
+    _crc('ETST:CASE:START suite="Mem" name="leaky test"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( true ) is correct!",
     _crc("ETST:MEM:AFTER free=185000 delta=-15000 min=175000"),
@@ -96,7 +96,7 @@ DOCTEST_SESSION_CRASH = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="IMU" name="FIFO read"'),
+    _crc('ETST:CASE:START suite="IMU" name="FIFO read"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "Guru Meditation Error: Core  0 panic'ed (StoreProhibited). Exception was unhandled.",
     "Core  0 register dump:",
@@ -110,7 +110,7 @@ DOCTEST_SESSION_SLEEP = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="Orientation" name="alert across sleep"'),
+    _crc('ETST:CASE:START suite="Orientation" name="alert across sleep"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( orientation == PORTRAIT ) is correct!",
     _crc("ETST:SLEEP ms=15000"),
@@ -122,7 +122,7 @@ DOCTEST_SESSION_FAIL = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Navigation rate test"'),
+    _crc('ETST:CASE:START suite="GPS" name="Navigation rate test"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "test/test_gps.cpp:42: ERROR: CHECK( nav_rate == 5 ) is NOT correct!",
     "  values: CHECK( 3 == 5 )",
@@ -139,12 +139,12 @@ DOCTEST_SESSION_MIXED = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Satellite count"'),
+    _crc('ETST:CASE:START suite="GPS" name="Satellite count"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( sat_count >= 4 ) is correct!",
     _crc("ETST:MEM:AFTER free=199500 delta=-500 min=179000"),
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Navigation rate test"'),
+    _crc('ETST:CASE:START suite="GPS" name="Navigation rate test"'),
     _crc("ETST:MEM:BEFORE free=199500 min=179000"),
     "test/test_gps.cpp:42: ERROR: CHECK( nav_rate == 5 ) is NOT correct!",
     "  values: CHECK( 3 == 5 )",
@@ -161,7 +161,7 @@ DOCTEST_SESSION_TIMEOUT = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="GPS" name="Cold start fix" timeout=30'),
+    _crc('ETST:CASE:START suite="GPS" name="Cold start fix" timeout=30'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     "  CHECK( fix_acquired ) is correct!",
     _crc("ETST:MEM:AFTER free=199800 delta=-200 min=179500"),
@@ -175,7 +175,7 @@ DOCTEST_SESSION_DISCONNECT = [
     _crc("ETST:READY"),
     "Runner: RUN_ALL (no additional filter)",
     "",
-    _crc('ETST:TEST:START suite="Sleep" name="deep sleep wake"'),
+    _crc('ETST:CASE:START suite="Sleep" name="deep sleep wake"'),
     _crc("ETST:MEM:BEFORE free=200000 min=180000"),
     _crc("ETST:DISCONNECT ms=5000"),
     "garbage during deep sleep",
@@ -316,9 +316,9 @@ class TestTimingIntegration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="fast"'),
+            _crc('ETST:CASE:START suite="Suite" name="fast"'),
             "  CHECK( true ) is correct!",
-            _crc('ETST:TEST:START suite="Suite" name="second"'),
+            _crc('ETST:CASE:START suite="Suite" name="second"'),
             "  CHECK( true ) is correct!",
             "[doctest] test cases:  2 |  2 passed | 0 failed |",
             _crc("ETST:DONE"),
@@ -338,7 +338,7 @@ class TestMemoryIntegration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="test"'),
+            _crc('ETST:CASE:START suite="Suite" name="test"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             _crc("ETST:MEM:AFTER free=199000 delta=-1000 min=179000"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
@@ -354,10 +354,10 @@ class TestMemoryIntegration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="clean"'),
+            _crc('ETST:CASE:START suite="Suite" name="clean"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             _crc("ETST:MEM:AFTER free=199800 delta=-200 min=179800"),
-            _crc('ETST:TEST:START suite="Suite" name="leaky"'),
+            _crc('ETST:CASE:START suite="Suite" name="leaky"'),
             _crc("ETST:MEM:BEFORE free=199800 min=179800"),
             _crc("ETST:MEM:AFTER free=187000 delta=-12800 min=177000"),
             _crc("ETST:MEM:WARN leaked=12800"),
@@ -375,7 +375,7 @@ class TestMemoryIntegration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="big_leak"'),
+            _crc('ETST:CASE:START suite="Suite" name="big_leak"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             _crc("ETST:MEM:AFTER free=180000 delta=-20000 min=170000"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",
@@ -396,7 +396,7 @@ class TestSleepOrchestration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc('ETST:CASE:START suite="Orientation" name="sleep wake test"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             "  CHECK( orientation == PORTRAIT ) is correct!",
             _crc("ETST:SLEEP ms=15000"),
@@ -413,7 +413,7 @@ class TestSleepOrchestration:
         # First cycle: boot → ready → test → sleep
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc('ETST:CASE:START suite="Orientation" name="sleep wake test"'),
             "  CHECK( orientation == PORTRAIT ) is correct!",
             _crc("ETST:SLEEP ms=5000"),
         ])
@@ -427,7 +427,7 @@ class TestSleepOrchestration:
         feed_session(runner, [
             _crc("ETST:READY"),
             "Runner filter applied: *sleep wake test*",
-            _crc('ETST:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc('ETST:CASE:START suite="Orientation" name="sleep wake test"'),
             "  CHECK( wake_orientation == LANDSCAPE ) is correct!",
             _crc("ETST:DONE"),
         ])
@@ -458,7 +458,7 @@ class TestSleepOrchestration:
         # Feed lines to reach SLEEPING state
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Orientation" name="sleep wake test"'),
+            _crc('ETST:CASE:START suite="Orientation" name="sleep wake test"'),
             _crc("ETST:SLEEP ms=5000"),
         ])
         assert runner.protocol.state == ProtocolState.SLEEPING
@@ -477,7 +477,7 @@ class TestCrashIntegration:
 
         lines = [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="IMU" name="FIFO watermark interrupt"'),
+            _crc('ETST:CASE:START suite="IMU" name="FIFO watermark interrupt"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             "Guru Meditation Error: Core  0 panic'ed (LoadProhibited).",
         ]
@@ -497,7 +497,7 @@ class TestCrashIntegration:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Hang" name="infinite loop"'),
+            _crc('ETST:CASE:START suite="Hang" name="infinite loop"'),
             "Task watchdog got triggered.",
         ])
         for i in range(20):
@@ -544,7 +544,7 @@ class TestSummaryReporting:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="leaky"'),
+            _crc('ETST:CASE:START suite="Suite" name="leaky"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             _crc("ETST:MEM:AFTER free=185000 delta=-15000 min=175000"),
             _crc("ETST:MEM:WARN leaked=15000"),
@@ -562,7 +562,7 @@ class TestSummaryReporting:
 
         feed_session(runner, [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="clean"'),
+            _crc('ETST:CASE:START suite="Suite" name="clean"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             _crc("ETST:MEM:AFTER free=199800 delta=-200 min=179800"),
             "[doctest] test cases:  1 |  1 passed | 0 failed |",

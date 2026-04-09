@@ -170,7 +170,7 @@ class TestLineCallbackHangDetection:
         runner.on_testing_line_output(_crc("ETST:READY") + "\n")
         runner.protocol.command_sent()
         runner.on_testing_line_output(
-            _crc('ETST:TEST:START suite="Suite" name="hangs"') + "\n"
+            _crc('ETST:CASE:START suite="Suite" name="hangs"') + "\n"
         )
 
         # Wait longer than the hang timeout
@@ -196,7 +196,7 @@ class TestLineCallbackHangDetection:
         runner.on_testing_line_output(_crc("ETST:READY") + "\n")
         runner.protocol.command_sent()
         runner.on_testing_line_output(
-            _crc('ETST:TEST:START suite="Suite" name="fast"') + "\n"
+            _crc('ETST:CASE:START suite="Suite" name="fast"') + "\n"
         )
 
         # Rapid output — no hang
@@ -316,7 +316,7 @@ class TestOrchestratedProtocol:
         # Simulate: READY → command sent → tests → DONE
         lines = [
             _crc("ETST:READY") + "\n",
-            _crc('ETST:TEST:START suite="S" name="t1"') + "\n",
+            _crc('ETST:CASE:START suite="S" name="t1"') + "\n",
             "test output\n",
             '[doctest] test cases: 1 | 1 passed | 0 failed\n',
             _crc("ETST:DONE") + "\n",
@@ -337,7 +337,7 @@ class TestOrchestratedProtocol:
         runner = make_runner()
         lines = [
             _crc("ETST:READY") + "\n",
-            _crc('ETST:TEST:START suite="S" name="t1"') + "\n",
+            _crc('ETST:CASE:START suite="S" name="t1"') + "\n",
             "test output\n",
         ]
         for line in lines:
@@ -362,7 +362,7 @@ class TestOrchestratedProtocol:
         runner = make_runner()
         lines = [
             _crc("ETST:READY") + "\n",
-            _crc('ETST:TEST:START suite="S" name="t1"') + "\n",
+            _crc('ETST:CASE:START suite="S" name="t1"') + "\n",
             "test output\n",
             '[doctest] test cases: 1 | 1 passed | 0 failed\n',
         ]
@@ -425,7 +425,7 @@ class TestOrchestratedProtocol:
         # Simulate full test session including doctest summary
         session = [
             _crc("ETST:READY") + "\n",
-            _crc('ETST:TEST:START suite="S" name="t1" timeout=5') + "\n",
+            _crc('ETST:CASE:START suite="S" name="t1" timeout=5') + "\n",
             "test/foo.cpp:10: SUCCESS: CHECK( true )\n",
             # doctest summary — this is what PIO parses to mark finished
             "[doctest] test cases: 1 | 1 passed | 0 failed\n",
@@ -463,7 +463,7 @@ class TestOrchestratedProtocol:
         runner._on_serial_data((_crc("ETST:READY") + "\n").encode())
         runner.protocol.command_sent()
         runner._on_serial_data(
-            (_crc('ETST:TEST:START suite="S" name="t1"') + "\n").encode()
+            (_crc('ETST:CASE:START suite="S" name="t1"') + "\n").encode()
         )
         runner._on_serial_data(b"test output\n")
 
@@ -493,7 +493,7 @@ class TestOrchestratedProtocol:
 
         # Build the serial data stream
         ready = _crc("ETST:READY") + "\n"
-        test_start = _crc('ETST:TEST:START suite="S" name="t1"') + "\n"
+        test_start = _crc('ETST:CASE:START suite="S" name="t1"') + "\n"
         test_output = "test/foo.cpp:10: SUCCESS: CHECK( true )\n"
         doctest_summary = (
             "[doctest] test cases: 1 | 1 passed | 0 failed\n"
@@ -564,11 +564,11 @@ class TestIntegration:
 
         lines = [
             _crc("ETST:READY"),
-            _crc('ETST:TEST:START suite="Suite" name="test1"'),
+            _crc('ETST:CASE:START suite="Suite" name="test1"'),
             _crc("ETST:MEM:BEFORE free=200000 min=180000"),
             "  CHECK( true ) is correct!",
             _crc("ETST:MEM:AFTER free=199800 delta=-200 min=179800"),
-            _crc('ETST:TEST:START suite="Suite" name="test2"'),
+            _crc('ETST:CASE:START suite="Suite" name="test2"'),
             _crc("ETST:MEM:BEFORE free=199800 min=179800"),
             "  CHECK( true ) is correct!",
             _crc("ETST:MEM:AFTER free=199600 delta=-200 min=179600"),

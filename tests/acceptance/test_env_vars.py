@@ -36,7 +36,7 @@ def run_pio_test(project_dir, env, port, extra_env=None, program_args=None, time
     """Run `pio test` and return parsed results.
 
     Returns a dict with:
-      tests_run:   list of test names from ETST:TEST:START markers
+      tests_run:   list of test names from ETST:CASE:START markers
       total:       total from doctest summary
       passed:      passed from doctest summary
       failed:      failed from doctest summary
@@ -77,7 +77,7 @@ def run_pio_test(project_dir, env, port, extra_env=None, program_args=None, time
     stdout = result.stdout + result.stderr
 
     # Parse test starts
-    tests_run = re.findall(r'ETST:TEST:START.*?name="([^"]*)"', stdout)
+    tests_run = re.findall(r'ETST:CASE:START.*?name="([^"]*)"', stdout)
 
     # Parse doctest summary
     total = passed = failed = skipped = 0
