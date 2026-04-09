@@ -1,0 +1,223 @@
+# Multi-Phase Test Design
+
+## Overview
+
+Generalize sleep/wake two-phase tests to support any number of phases
+triggered by any kind of disruption — deep sleep, restart, power cycle,
+firmware update, or custom transitions.
+
+## Firmware API
+
+### Phase tracking
+
+```cpp
+namespace etst {
+    /// Current phase number (0 = initial, 1+ = continuation).
+    /// Set by the host via --phase N in the RUN: command.
+    int phase();
+
+    /// Shorthand for phase() > 0.
+    bool is_continuation();
+}
+```
+
+Replaces `is_test_wake()`. The host sends `--phase N` on each cycle,
+firmware stores it as a regular variable (no RTC memory).
+
+### Ending a phase
+
+```cpp
+namespace etst {
+    // Predefined transition tags
+    constexpr const char* SLEEP = "sleep";
+    constexpr const char* RESTART = "restart";
+    constexpr const char* POWER_CYCLE = "power_cycle";
+
+    /// Signal a phase transition. The host performs the transition
+    /// and sends the test back with phase incremented.
+    void signal_phase_end(const char* tag);
+
+    /// With optional key-value parameters.
+    void signal_phase_end(const char* tag, std::initializer_list<Param> params);
+}
+```
+
+Users can define custom transition tags:
+
+```cpp
+constexpr const char* FLASH_UPDATE = "flash_update";
+```
+
+### Usage
+
+```cpp
+TEST_CASE("survives power cycle" * doctest::timeout(30)) {
+    switch (etst::phase()) {
+        case 0:
+            CHECK(setup_ok());
+            etst::signal_phase_end(etst::POWER_CYCLE);
+            break;
+        case 1:
+            CHECK(recovered_ok());
+            break;  // no signal_phase_end — test complete
+    }
+}
+```
+
+Three-phase example:
+
+```cpp
+TEST_CASE("OTA update and verify" * doctest::timeout(120)) {
+    switch (etst::phase()) {
+        case 0:
+            CHECK(prepare_update());
+            etst::signal_phase_end("flash_update", {
+                {"binary", "firmware-v2.bin"},
+                {"partition", "ota_1"}
+            });
+            break;
+        case 1:
+            CHECK(verify_new_firmware());
+            etst::signal_phase_end(etst::RESTART);
+            break;
+        case 2:
+            CHECK(boot_count() == expected);
+            break;
+    }
+}
+```
+
+## Wire Protocol
+
+### Phase transition message
+
+```
+ETST:PHASE tag="sleep" duration_ms=3000 *XX
+ETST:PHASE tag="restart" *XX
+ETST:PHASE tag="power_cycle" *XX
+ETST:PHASE tag="flash_update" binary="firmware-v2.bin" *XX
+```
+
+Replaces `ETST:SLEEP ms=N` and `ETST:RESTART`. These become convenience
+aliases that emit `ETST:PHASE` with the appropriate tag. During the
+transition period, the host accepts both old and new message formats.
+
+### RUN command
+
+```
+RUN: --phase 2 --tc "OTA update and verify" *XX
+```
+
+Replaces `--wake`. The `--continue` flag is a synonym for `--phase 1`
+(backward compat for simple two-phase tests).
+
+### Separate message types
+
+Phase transitions, data transfer, and state save/restore are distinct
+protocol messages with shared key-value encoding:
+
+| Message | Purpose | Host action |
+|---------|---------|-------------|
+| `ETST:PHASE` | Transition — connection will disrupt | Perform transition, reconnect, resume |
+| `ETST:DATA` | Artifact — store/process | Record for post-test analysis |
+| `ETST:STATE` | Save — replay on next phase | Store, replay before next phase runs |
+
+These are NOT unified into one message type. Different semantics,
+different handler chains, shared payload encoding.
+
+## Host Side
+
+### PhaseHandler
+
+```python
+class PhaseHandler:
+    """Override for lab-specific transition behavior."""
+
+    def on_sleep(self, test_name: str, duration_ms: int) -> None:
+        """Default: wait for USB-CDC port to disappear and reappear."""
+
+    def on_restart(self, test_name: str) -> None:
+        """Default: wait for port reconnect."""
+
+    def on_power_cycle(self, test_name: str) -> None:
+        """No default — user must implement."""
+        raise NotImplementedError
+
+    def on_transition(self, test_name: str, tag: str, params: dict) -> None:
+        """Fallback for custom/unknown transition types.
+        Called when no specific on_<tag> method exists."""
+        raise NotImplementedError(f"No handler for transition '{tag}'")
+```
+
+The runner dispatches: looks for `on_<tag>()` method first, falls back to
+`on_transition()`. Users compose via PhaseHandler, not runner subclassing.
+
+### Phase tracking in the runner
+
+The runner tracks per-test phase count:
+
+```python
+# test enters phase 0 (initial run)
+# ETST:PHASE received → increment phase, perform transition
+# send RUN: --phase 1 --tc "test name"
+# ETST:PHASE received again → increment, transition
+# send RUN: --phase 2 --tc "test name"
+# test completes without ETST:PHASE → done, send RESUME_AFTER
+```
+
+The runner enforces a max phase count (default 10) to prevent infinite
+loops from buggy tests.
+
+### PIO integration
+
+PhaseHandler is provided via the runner customization mechanism:
+
+```python
+# my_lab/test_runner.py
+def create_runner(suite, config, options):
+    from etst.runner import EmbeddedTestRunner
+    from etst.hooks import PhaseHandler
+
+    class LabHandler(PhaseHandler):
+        def on_power_cycle(self, test_name):
+            ppk2_toggle_power(port="/dev/ttyACM0")
+
+        def on_transition(self, test_name, tag, params):
+            if tag == "flash_update":
+                flash_binary(params["binary"], params.get("partition"))
+            else:
+                super().on_transition(test_name, tag, params)
+
+    runner = EmbeddedTestRunner(suite, config, options)
+    runner.phase_handler = LabHandler()
+    return runner
+```
+
+Loaded via `ETST_RUNNER=my_lab.test_runner` env var.
+
+## Migration from Current API
+
+| Old | New | Notes |
+|-----|-----|-------|
+| `is_test_wake()` | `is_continuation()` | Shorthand for `phase() > 0` |
+| `signal_sleep(ms)` | `signal_phase_end(etst::SLEEP, {{"duration_ms", ms}})` | Convenience wrapper kept |
+| `signal_restart()` | `signal_phase_end(etst::RESTART)` | Convenience wrapper kept |
+| `--wake` flag | `--phase 1` | `--continue` as synonym |
+| `ETST:SLEEP ms=N` | `ETST:PHASE tag="sleep" duration_ms=N` | Old format accepted during transition |
+| `ETST:RESTART` | `ETST:PHASE tag="restart"` | Old format accepted during transition |
+
+Convenience wrappers `signal_sleep(ms)` and `signal_restart()` remain as
+shorthand — they call `signal_phase_end()` internally.
+
+## Scope
+
+This spec covers:
+- Phase tracking API (firmware + host)
+- Phase transition protocol messages
+- PhaseHandler dispatch mechanism
+- Migration path from current sleep/wake API
+
+Does NOT cover:
+- `ETST:DATA` / `ETST:STATE` message implementation — separate spec
+- Platform namespace implementation — covered in rename spec
+- PIO deferred loading mechanism — PIO-specific implementation detail
