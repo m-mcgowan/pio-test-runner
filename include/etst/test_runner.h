@@ -4,7 +4,7 @@
 #include <esp_heap_caps.h>
 #include <esp_sleep.h>
 #endif
-#include "pio_test_runner/protocol.h"
+#include "etst/protocol.h"
 
 /// @brief PlatformIO test runner protocol — firmware-side API.
 ///

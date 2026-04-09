@@ -50,7 +50,7 @@
 #include <vector>
 #include <doctest.h>
 #include <Arduino.h>
-#include "pio_test_runner/test_runner.h"
+#include "etst/test_runner.h"
 
 // _ptr_is_wake_cycle is declared in test_runner.h, defined here.
 // inline variable (C++17) — safe in header-only library.
