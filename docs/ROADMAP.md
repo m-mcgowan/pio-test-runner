@@ -10,7 +10,7 @@ orchestration framework.
 - **DX stability**: the user-facing API should not change for existing users.
   Refactoring happens behind the current interface. If the DX has rough edges,
   fix those before stabilizing — breaking changes are cheaper now than later.
-- **Protocol is the contract**: the PTR wire protocol (ETST:READY, ETST:DONE,
+- **Protocol is the contract**: the ETST wire protocol (ETST:READY, ETST:DONE,
   ETST:CASE:START, etc.) is framework-agnostic by design. Any test framework
   that emits these markers gets full orchestration support for free.
 - **Host knows more than firmware**: the host has unlimited memory, network
@@ -69,13 +69,13 @@ test_orchestrator.h          (framework-agnostic)
   └─ filter state            FilterState, count_passing_filters()
 
 doctest_adapter.h            (doctest-specific)
-  ├─ PtrTestListener         doctest::IReporter → PTR markers
+  ├─ PtrTestListener         doctest::IReporter → ETST markers
   ├─ registry walking        getRegisteredTests()
   ├─ filter application      ctx.applyCommandLine(), modify_skip()
   └─ execution               context.run()
 
 unity_adapter.h              (future)
-  ├─ UnityReporter           Unity reporter → PTR markers
+  ├─ UnityReporter           Unity reporter → ETST markers
   ├─ test listing            Unity test registry
   └─ execution               UnityMain()
 ```
@@ -159,6 +159,42 @@ would change to `embedded-test-runner` or similar.
 
 This is a coordinated rename across the library and all consumers. Ship the
 backward-compat aliases first so consumers can migrate at their own pace.
+
+---
+
+## Phase 1.5: Dependency Direction Fix (embedded-bridge)
+
+Currently embedded-bridge's `MemoryTracker` has an inline copy of the ETST
+protocol parser (prefix, regexes, CRC). This creates an upward dependency
+from the generic library to the test runner protocol.
+
+### Correct dependency direction
+
+```
+embedded-bridge          (generic receivers: MemoryTracker, CrashDetector)
+    ↑                     format-agnostic, plain value APIs
+pio-test-runner          (ETST protocol → parses lines → feeds values)
+    ↑                     owns protocol, adapts to generic receivers
+consumer firmware        (emits ETST: markers via C++ headers)
+```
+
+### MemoryTracker API change
+
+Current (protocol-aware):
+```python
+tracker.feed("ETST:MEM:BEFORE free=200000 min=180000 *XX")
+```
+
+Future (plain values):
+```python
+tracker.record_before(test_name="Suite/test1", free=200000, min_free=180000)
+tracker.record_after(test_name="Suite/test1", free=199000, delta=-1000, min_free=179000)
+```
+
+The protocol parsing moves to pio-test-runner's router, which calls these
+methods after parsing `ETST:MEM:*` lines. embedded-bridge knows nothing
+about `ETST:`, making it reusable for embedded-trace production profiling
+with different wire formats.
 
 ---
 
@@ -261,14 +297,14 @@ Zephyr has its own test framework (`ztest`) with features that overlap with ETST
 - Assertion macros
 
 **Investigation needed**: does Zephyr's test infrastructure handle sleep/wake
-cycles, serial disconnects, and multi-phase tests? If not, PTR's orchestration
-layer adds value. A `ztest_adapter.h` would emit PTR markers from ztest's
+cycles, serial disconnects, and multi-phase tests? If not, ETST's orchestration
+layer adds value. A `ztest_adapter.h` would emit ETST markers from ztest's
 reporter hooks.
 
 ### Catch2
 
-Catch2 has `IStreamingReporter` which maps well to PTR's listener pattern.
-A `catch_adapter.h` could emit PTR markers from Catch2's reporter events.
+Catch2 has `IStreamingReporter` which maps well to ETST's listener pattern.
+A `catch_adapter.h` could emit ETST markers from Catch2's reporter events.
 Filter syntax would differ (Catch2 uses `[tags]` not `--tc`/`--ts`).
 
 ### Arduino IDE (No Build System)
@@ -282,13 +318,19 @@ the standalone CLI.
 
 ---
 
-## What's NOT Changing
+## What's NOT Changing (This Release)
 
-These are stable and will remain as-is:
+These are stable for the current release:
 
-- **PTR wire protocol**: markers, CRC format, command structure
+- **ETST wire protocol**: markers, CRC format, command structure
 - **C++ marker API**: `signal_ready()`, `signal_done()`, `signal_sleep()`,
   `is_test_wake()`, `print_test_start()`, memory markers
-- **Environment variables**: `PTR_TEST_CASE`, `PTR_POST_TEST`, etc.
 - **test_custom_runner.py shim**: copy-to-project bootstrapper for PIO
 - **Weak function hooks**: `ptr_board_init()`, `ptr_after_cycle()`
+
+### Environment variable rename (future)
+
+The `PTR_*` environment variables (`PTR_TEST_CASE`, `PTR_POST_TEST`, etc.)
+still use the old prefix. These are user-facing and changing them breaks
+existing CI scripts and shell aliases. Rename to `ETST_*` in a future
+release with a deprecation period — accept both prefixes, warn on old.
