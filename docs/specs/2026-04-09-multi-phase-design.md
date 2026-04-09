@@ -242,6 +242,35 @@ harness is another device with its own PhaseHandler, and the host
 coordinates both. But the test authoring experience (one body of code
 that spans DUT and harness) needs its own design.
 
+## Testing
+
+The implementation plan must include tests for:
+
+**Unit tests (Python, mocked serial):**
+- `ETST:PHASE` message parsed correctly (tag + params)
+- Phase counter increments across cycles
+- Host sends `--phase N` on resume
+- PhaseHandler dispatch: `on_sleep`, `on_restart`, `on_transition` fallback
+- Custom transition tag dispatches to `on_transition()`
+- Max phase count triggers error (infinite loop prevention)
+- Backward compat: `ETST:SLEEP` / `--wake` still accepted
+
+**Unit tests (C++, native or mocked):**
+- `etst::phase()` returns value from `--phase N`
+- `etst::is_continuation()` returns `phase() > 0`
+- `signal_phase_end()` emits correct `ETST:PHASE` wire format
+- Convenience wrappers emit correct messages
+
+**Integration tests (mocked serial, full orchestration):**
+- Two-phase sleep test (existing behavior, new protocol)
+- Three-phase test: sleep → restart → verify
+- Custom transition type end-to-end
+
+**Acceptance tests (on hardware):**
+- Two-phase deep sleep test passes with `--phase` protocol
+- Three-phase test with two sleep cycles
+- `RESUME_AFTER` correctly runs remaining tests after multi-phase test
+
 ## Scope
 
 This spec covers:

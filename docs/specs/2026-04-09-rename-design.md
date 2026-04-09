@@ -191,6 +191,22 @@ This spec covers the mechanical rename only:
 to use the new namespaces. It remains excluded from the library build
 (header-only mode) — the entry point spec will address making it automatic.
 
+## Testing
+
+The implementation plan must include:
+
+- All existing unit tests (205) pass after rename
+- All existing acceptance tests (40+) pass on hardware after rename
+- Firmware builds with new include paths and namespaces
+- Consumer project (firmware2/simple_publish) builds against release branch
+- CI green on all Python versions
+
+The rename is mechanical — the existing test suite is the primary
+verification. No new test logic is needed, but tests must be updated
+to use new names and pass.
+
+## Out of Scope
+
 It does NOT cover:
 - Multi-phase generalization (`is_continuation()`) — separate spec
 - Entry point / default_main.cpp — separate spec
