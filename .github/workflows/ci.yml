@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install "embedded-bridge @ git+https://github.com/m-mcgowan/embedded-bridge.git"
+          pip install "embedded-bridge @ git+https://github.com/m-mcgowan/embedded-bridge.git#subdirectory=python"
           pip install -e ".[dev]"
 
       - name: Run tests
