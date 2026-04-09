@@ -126,8 +126,39 @@ wires up `DoctestAdapter` automatically. Unity users would include
 - `ptr_doctest::config.configure_context` takes `doctest::Context&` — this
   leaks the framework into the user API. Consider whether this callback is
   necessary or if all use cases can be handled via env vars and build flags.
-- The `ptr_doctest` namespace name is doctest-specific. Consider `ptr` as the
-  namespace, with `ptr::config`, `ptr::run_tests()`, `ptr::idle_loop()`.
+
+### Namespace and Include Path Rename
+
+The C++ namespaces and include paths still reflect the old naming:
+
+| Current | Future | Notes |
+|---------|--------|-------|
+| `#include <pio_test_runner/...>` | `#include <etst/...>` | Include path |
+| `pio_test_runner::signal_sleep()` | `etst::signal_sleep()` | Protocol namespace |
+| `ptr_doctest::config` | `etst::config` | Runner namespace |
+| `ptr_doctest::run_tests()` | `etst::run_tests()` | Runner namespace |
+| `PtrTestListener` | `EtstTestListener` | Internal class |
+| `_ptr_is_wake_cycle` | `_etst_is_wake_cycle` | Internal variable |
+
+**Strategy**: rename with backward-compat aliases in the old headers:
+```cpp
+// pio_test_runner/test_runner.h (deprecated, forwards to etst/test_runner.h)
+#pragma once
+#include <etst/test_runner.h>
+namespace pio_test_runner = etst;
+```
+
+Consumer code (`~/e/firmware2/simple_publish`, etc.) uses:
+- `#include <pio_test_runner/doctest_runner.h>`
+- `ptr_doctest::config`, `ptr_doctest::run_tests()`, `ptr_doctest::idle_loop()`
+- `pio_test_runner::signal_sleep()`, `pio_test_runner::signal_busy()`
+
+The Python package name (`pio_test_runner`) should also be renamed, with the
+old name kept as a compatibility shim. The `library.json` name and git repo
+would change to `embedded-test-runner` or similar.
+
+This is a coordinated rename across the library and all consumers. Ship the
+backward-compat aliases first so consumers can migrate at their own pace.
 
 ---
 
