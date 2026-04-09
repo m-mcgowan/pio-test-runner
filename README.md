@@ -1,6 +1,6 @@
 # pio-test-runner
 
-Test orchestration for 
+Test orchestration for embedded [doctest](https://github.com/doctest/doctest) suites running on ESP32 with PlatformIO.
 
 Writing embedded tests is usually fairly straightforward. Running them reliably is the hard part — the serial port vanishes during deep sleep, firmware reboots mid-test to verify wake behavior, and large test suites fragment the heap so later tests that work in isolation suddenly crash. `pio-test-runner` handles the hard part: it reconnects after sleep, resumes where it left off, tracks per-test memory, and catches crashes and hangs — so you write tests, not infrastructure.
 
@@ -11,7 +11,6 @@ Writing embedded tests is usually fairly straightforward. Running them reliably 
 - Per-test timing with slow test reporting
 - Crash detection (guru meditation, stack trace, watchdog)
 - Runtime test filtering without rebuilding firmware
-
 
 Currently supports **doctest** on **ESP32** via **PlatformIO**, with a [roadmap](docs/ROADMAP.md) toward additional frameworks (Unity, Catch2), platforms (Zephyr), and standalone operation.
 
@@ -237,6 +236,7 @@ void loop() {
 | `ETST_ON_DONE` | `wait`, `sleep`, `lightsleep`, `restart`, `none` | `wait` | Action when tests complete. `wait` = idle loop (stays online). `sleep` = deep sleep (saves battery, USB disappears). `restart` = reboot. `none` = close serial. |
 | `ETST_RESUME_AFTER` | test name | none | Skip tests up to named test, run rest. |
 | `ETST_HANG_TIMEOUT` | seconds | `30` | No-output duration before declaring a hang. |
+
 
 ## Hang Detection
 

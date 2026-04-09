@@ -5,7 +5,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
-## [0.3.0] — 2026-04-09
+## [0.2.0] — 2026-04-09
 
 ### Breaking Changes
 - **Protocol prefix renamed** `PTR:` → `ETST:` (Embedded Test). All protocol
@@ -54,7 +54,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 - **CI** — install embedded-bridge from git, ignore acceptance tests
   (require hardware).
 
-## [0.2.0] — 2026-03-31
+## [0.2.0-unreleased] — 2026-03-31
 
 ### Added
 - **Runtime skip control** — `--unskip-tc`, `--unskip-ts`, `--skip-tc`,
