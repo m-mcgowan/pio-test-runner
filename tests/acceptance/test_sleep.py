@@ -115,7 +115,7 @@ class TestDeepSleep:
         # Phase 2: Wait for wake, reconnect, run sleeping test Phase 2
         ser = wait_for_ready_after_sleep(port, baud, sleep_ms)
 
-        filter_cmd = format_crc(f"RUN: *{sleeping_test}*")
+        filter_cmd = format_crc(f'RUN: --tc "{sleeping_test}"')
         ser.write((filter_cmd + "\n").encode())
 
         # Collect Phase 2 results

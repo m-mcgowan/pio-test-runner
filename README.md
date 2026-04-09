@@ -28,22 +28,24 @@ Runtime test filtering for embedded targets uses the same `-a` flags as native d
 
 ```bash
 # Filter by test suite
-pio test -e my_board -a "--ts *SensorTests*"
+pio test -e my_board -a '--ts *SensorTests*'
 
 # Filter by test case
-pio test -e my_board -a "--tc *timeout*"
+pio test -e my_board -a '--tc *timeout*'
 
 # Exclude a suite
-pio test -e my_board -a "--tse *slow*"
+pio test -e my_board -a '--tse *slow*'
 
 # Combine filters
-pio test -e my_board -a "--ts *Network*" -a "--tce *stress*"
+pio test -e my_board -a '--ts *Network*' -a '--tce *stress*'
 ```
 
-Alternatively, set environment variables:
+> **Shell quoting:** Always quote filter patterns to prevent shell glob expansion. Single quotes are safest (`'*pattern*'`). Double quotes also work but require care with special characters. Without quotes, the shell may expand `*` against filenames in the current directory.
+
+Alternatively, set environment variables (no quoting issues — the shell doesn't expand inside variable values):
 
 ```bash
-PTR_TEST_SUITE="*SensorTests*" pio test -e my_board
+PTR_TEST_SUITE='*SensorTests*' pio test -e my_board
 ```
 
 ### Supported filters
@@ -61,6 +63,12 @@ PTR_TEST_SUITE="*SensorTests*" pio test -e my_board
 | `--skip-ts` | `PTR_SKIP_TEST_SUITE` | Force-skip matching test suites |
 
 Patterns support `*` wildcards (doctest globbing). Filters from `-a` and environment variables are combined. All doctest native flags (`--no-skip`, comma-separated patterns, etc.) are passed through via `applyCommandLine()`.
+
+### Filtering notes
+
+- **`--ts` excludes tests without a suite.** The `--ts` filter matches against the `TEST_SUITE` name. Tests not wrapped in a `TEST_SUITE()` block have an empty suite name and are excluded by any `--ts` pattern (they won't match `*Foo*`). Conversely, `--tse` won't exclude them either. Put all tests in a `TEST_SUITE()` for predictable filtering.
+- **No-match filters succeed silently.** If a filter matches zero tests, the run completes with 0 tests and no error. There is no "filter matched nothing" warning. Double-check your patterns if you get an unexpectedly empty run.
+- **Multiple exclude flags.** Use comma-separated patterns within a single flag (`--tse *Foo*,*Bar*`) rather than repeating the flag (`--tse *Foo* --tse *Bar*`). Repeated flags may only apply the last value.
 
 ### Skip control
 
@@ -125,6 +133,49 @@ void loop()  { DOCTEST_LOOP(); }
 |----------|--------|---------|-------------|
 | `PTR_POST_TEST` | `sleep`, `lightsleep`, `restart`, `wait`, `none` | `sleep` | Command sent after tests complete. `sleep` = deep sleep (saves battery, port disappears). `lightsleep` = light sleep (low power, port stays alive). `restart` = reboot (immediately available). `wait` = idle loop (fully active). `none` = close without command. |
 | `PTR_RESUME_AFTER` | test name | none | Skip all tests up to and including the named test, then run the rest. Useful for resuming after a failure. Combines with filters (`PTR_TEST_SUITE`, etc.) which apply to the remaining tests. |
+
+## Writing Deep Sleep Tests
+
+Tests can trigger deep sleep mid-execution. The runner handles the sleep/wake cycle automatically:
+
+1. **Phase 1** (first boot): test runs pre-sleep checks, calls `signal_sleep()`, enters deep sleep
+2. **Phase 2** (after wake): runner reconnects, sends the test name — test detects wake via `is_test_wake()` and verifies post-sleep state
+3. **Remaining tests**: runner sends `RESUME_AFTER` to skip past the completed test and run the rest
+
+```cpp
+#include <doctest.h>
+#include <esp_sleep.h>
+#include <pio_test_runner/test_runner.h>
+
+TEST_SUITE("MyTests") {
+
+TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
+    if (pio_test_runner::is_test_wake()) {
+        // Phase 2: woke from deep sleep — verify wake cause
+        CHECK(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER);
+    } else {
+        // Phase 1: pre-sleep checks, then sleep
+        CHECK(some_pre_sleep_condition());
+
+        pio_test_runner::signal_sleep(3000);  // tell runner: sleeping for 3s
+        Serial.flush();
+        delay(100);
+
+        esp_sleep_enable_timer_wakeup(3 * 1000000ULL);
+        esp_deep_sleep_start();
+        // never reached — device resets on wake
+    }
+}
+
+}
+```
+
+**Key APIs:**
+- `pio_test_runner::signal_sleep(ms)` — emit `PTR:SLEEP ms=N` so the runner knows to wait and reconnect
+- `pio_test_runner::is_test_wake()` — returns true if this boot is a wake from `signal_sleep()` (uses RTC memory)
+- Always use `doctest::timeout(N)` on sleep tests to prevent hangs
+
+**Why use deep sleep tests?** Deep sleep resets the heap entirely. In large test suites (700+ tests), heap fragmentation accumulates across tests. A deep sleep test mid-suite acts as a clean reset point, preventing out-of-memory failures in later tests.
 
 ## Status
 

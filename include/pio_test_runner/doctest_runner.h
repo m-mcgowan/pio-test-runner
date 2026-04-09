@@ -52,6 +52,10 @@
 #include <Arduino.h>
 #include "pio_test_runner/test_runner.h"
 
+// _ptr_is_wake_cycle is declared in test_runner.h, defined here.
+// inline variable (C++17) — safe in header-only library.
+namespace pio_test_runner { inline bool _ptr_is_wake_cycle = false; }
+
 #if defined(ESP_IDF_VERSION)
 #include <esp_heap_caps.h>
 #include <esp_system.h>
@@ -366,6 +370,12 @@ inline void extract_ptr_flags(std::vector<String>& args) {
     // Process in argument order so later flags override earlier ones.
     // e.g. --skip-tc *foo* --unskip-tc *foo* → foo ends up unskipped.
     for (size_t i = 0; i < args.size(); ) {
+        // --wake: Phase 2 after deep sleep (no value, just a flag)
+        if (args[i] == "--wake") {
+            pio_test_runner::_ptr_is_wake_cycle = true;
+            args.erase(args.begin() + i);
+            continue;
+        }
         bool matched = false;
         for (auto& pf : ptr_flags) {
             if (args[i] == pf.flag && i + 1 < args.size()) {
@@ -452,6 +462,58 @@ inline std::vector<String> build_doctest_argv(const std::vector<String>& args) {
 }
 
 /**
+ * @brief Check if a name matches any pattern in a filter list.
+ *
+ * Mirrors doctest's internal matchesAny() (anonymous namespace, not
+ * accessible to us). Used to compute accurate test counts before run().
+ */
+inline bool matches_any(const char* name, const std::vector<String>& filters,
+                        bool match_empty) {
+    if (filters.empty() && match_empty) return true;
+    if (!name) name = "";  // tests not in a suite have nullptr
+    for (auto& f : filters) {
+        if (glob_match(name, f.c_str())) return true;
+    }
+    return false;
+}
+
+/// Captured filter state from apply_run_filters(), used by count_passing_filters().
+struct FilterState {
+    std::vector<String> ts;    // test-suite include
+    std::vector<String> tse;   // test-suite exclude
+    std::vector<String> tc;    // test-case include
+    std::vector<String> tce;   // test-case exclude
+    bool no_skip = false;
+
+    void clear() { ts.clear(); tse.clear(); tc.clear(); tce.clear(); no_skip = false; }
+};
+inline FilterState& active_filters() {
+    static FilterState state;
+    return state;
+}
+
+/**
+ * @brief Count tests that will pass the current filter configuration.
+ *
+ * Replicates doctest's filter logic using the filters captured during
+ * apply_run_filters(). Call after apply_runner_command().
+ */
+inline unsigned count_passing_filters() {
+    auto& f = active_filters();
+    unsigned count = 0;
+    for (auto& tc : doctest::detail::getRegisteredTests()) {
+        bool skip = false;
+        if (tc.m_skip && !f.no_skip) skip = true;
+        if (!matches_any(tc.m_test_suite, f.ts, true)) skip = true;
+        if (matches_any(tc.m_test_suite, f.tse, false)) skip = true;
+        if (!matches_any(tc.m_name, f.tc, true)) skip = true;
+        if (matches_any(tc.m_name, f.tce, false)) skip = true;
+        if (!skip) count++;
+    }
+    return count;
+}
+
+/**
  * @brief Parse and apply filter flags from a RUN: command body.
  *
  * Two-phase processing:
@@ -466,10 +528,12 @@ inline std::vector<String> build_doctest_argv(const std::vector<String>& args) {
  */
 inline void apply_run_filters(doctest::Context& ctx, const String& body) {
     auto args = tokenize_args(body);
+    auto& filters = active_filters();
 
     // Check for bare pattern (no -- flags) for backwards compatibility
     if (args.size() == 1 && !args[0].startsWith("--")) {
         ctx.setOption("test-case", args[0].c_str());
+        filters.tc.push_back(args[0]);
         Serial.printf("Runner filter applied: %s\n", args[0].c_str());
         return;
     }
@@ -480,6 +544,34 @@ inline void apply_run_filters(doctest::Context& ctx, const String& body) {
     // Phase 2: pass remaining flags to doctest's native parser.
     if (!args.empty()) {
         auto argv = build_doctest_argv(args);
+        // Capture filter values for count_passing_filters().
+        // argv entries are "--flag=value" after build_doctest_argv.
+        for (auto& a : argv) {
+            // Parse comma-separated values (doctest native feature)
+            auto capture = [](const String& a, const char* prefix, std::vector<String>& out) {
+                if (!a.startsWith(prefix)) return false;
+                String val = a.substring(strlen(prefix));
+                // Split comma-separated patterns
+                int start = 0;
+                for (int i = 0; i <= (int)val.length(); i++) {
+                    if (i == (int)val.length() || val[i] == ',') {
+                        if (i > start) out.push_back(val.substring(start, i));
+                        start = i + 1;
+                    }
+                }
+                return true;
+            };
+            capture(a, "--tc=", filters.tc) ||
+            capture(a, "--test-case=", filters.tc) ||
+            capture(a, "--ts=", filters.ts) ||
+            capture(a, "--test-suite=", filters.ts) ||
+            capture(a, "--tce=", filters.tce) ||
+            capture(a, "--test-case-exclude=", filters.tce) ||
+            capture(a, "--tse=", filters.tse) ||
+            capture(a, "--test-suite-exclude=", filters.tse);
+            if (a == "--no-skip") filters.no_skip = true;
+        }
+
         std::vector<const char*> argv_ptrs;
         for (auto& a : argv) {
             argv_ptrs.push_back(a.c_str());
@@ -612,6 +704,7 @@ inline void run_cycle(const String& command) {
     apply_compile_time_filters(context);
     context.applyCommandLine(0, nullptr);
 
+    active_filters().clear();
     auto cmd = apply_runner_command(context, command);
 
     if (config.configure_context) {
@@ -620,8 +713,14 @@ inline void run_cycle(const String& command) {
 
     if (cmd.should_run) {
         unsigned total = static_cast<unsigned>(get_test_names().size());
-        unsigned skip = static_cast<unsigned>(cmd.skip_count);
-        pio_test_runner::print_test_count(total, skip, total - skip);
+        unsigned run = count_passing_filters();
+        // Adjust for RESUME_AFTER: skip_count tests are excluded by
+        // doctest's "first" option, not reflected in filter counts.
+        if (cmd.skip_count > 0 && run > static_cast<unsigned>(cmd.skip_count)) {
+            run -= static_cast<unsigned>(cmd.skip_count);
+        }
+        unsigned skip = total - run;
+        pio_test_runner::print_test_count(total, skip, run);
 
         try {
             int result = context.run();
@@ -630,6 +729,10 @@ inline void run_cycle(const String& command) {
             Serial.println("Exception caught during test execution");
         }
     }
+
+    // Clear the wake flag so subsequent tests in RESUME_AFTER cycles
+    // see is_test_wake()==false.
+    pio_test_runner::clear_test_wake();
 
     if (config.after_cycle) {
         config.after_cycle();

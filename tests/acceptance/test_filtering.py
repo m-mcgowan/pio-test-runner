@@ -51,6 +51,7 @@ class TestRunAll:
         assert "basic arithmetic" in result["tests_run"]
         assert "string operations" in result["tests_run"]
         assert "skip target active" in result["tests_run"]
+        assert "no suite standalone" in result["tests_run"]
         # Skip-decorated tests should NOT run
         assert "unskip target simple" not in result["tests_run"]
         assert "suite unskip target" not in result["tests_run"]
@@ -82,6 +83,54 @@ class TestSuiteFilter:
     def test_ts_no_match_runs_nothing(self, device):
         result = send_command(device, "RUN: --ts *NonExistentSuite*")
         assert len(result["tests_run"]) == 0
+        send_sleep(device)
+
+
+# =========================================================================
+# Non-suite tests and --ts interaction
+# =========================================================================
+
+
+class TestNoSuiteFiltering:
+    """Tests not in a TEST_SUITE() interact with filters."""
+
+    def test_no_suite_runs_unfiltered(self, device):
+        """Without filters, non-suite tests run normally."""
+        result = send_command(device, "RUN: --tse *DeepSleep*")
+        assert "no suite standalone" in result["tests_run"]
+        send_sleep(device)
+
+    def test_ts_excludes_no_suite_tests(self, device):
+        """--ts *Protocol* should exclude tests not in any suite.
+
+        doctest's --ts filter matches against the suite name. Tests with
+        no suite have a null/empty suite name, which shouldn't match a
+        specific pattern. If this test fails (the non-suite test runs),
+        then --ts leaks non-suite tests through the filter.
+        """
+        result = send_command(device, "RUN: --ts *Protocol*")
+        assert "basic arithmetic" in result["tests_run"]
+        assert "no suite standalone" not in result["tests_run"]
+        send_sleep(device)
+
+    def test_ts_excludes_no_suite_negative(self, device):
+        """Verify with a different suite — non-suite tests still excluded."""
+        result = send_command(device, "RUN: --ts *SkipControl*")
+        assert "skip target active" in result["tests_run"]
+        assert "no suite standalone" not in result["tests_run"]
+        send_sleep(device)
+
+    def test_tc_matches_no_suite_test(self, device):
+        """--tc can select a non-suite test by name."""
+        result = send_command(device, "RUN: --tc *no*suite*standalone*")
+        assert result["tests_run"] == ["no suite standalone"]
+        send_sleep(device)
+
+    def test_tse_does_not_affect_no_suite(self, device):
+        """--tse excludes matching suites but non-suite test still runs."""
+        result = send_command(device, "RUN: --tse *Protocol*,*DeepSleep*")
+        assert "basic arithmetic" not in result["tests_run"]
+        assert "no suite standalone" in result["tests_run"]
         send_sleep(device)
 
 
@@ -251,4 +300,52 @@ class TestCombinedFilters:
         assert "suite unskip target" in result["tests_run"]
         # Protocol tests excluded by --ts
         assert "basic arithmetic" not in result["tests_run"]
+        send_sleep(device)
+
+
+# =========================================================================
+# Bare multi-word patterns (Phase 2 resume command format)
+# =========================================================================
+
+
+class TestBarePatternTokenizing:
+    """Bare multi-word patterns are split by the firmware tokenizer.
+
+    The runner's Phase 2 resume command sends test names as bare patterns
+    (no --tc flag). The firmware tokenizer splits on whitespace, so
+    multi-word names become multiple garbage args that doctest ignores.
+    Result: skip=0, all tests re-run instead of just the target.
+
+    See BUG_resume_loop_prevents_later_suites.md.
+    """
+
+    def test_bare_multiword_runs_all_tests(self, device):
+        """RUN: basic arithmetic — tokenizer splits, all tests run."""
+        result = send_command(device, "RUN: basic arithmetic")
+        # BUG: should run 1 test, actually runs all non-skipped tests
+        assert len(result["tests_run"]) > 1, \
+            "Expected all tests to run (tokenizer splits bare multi-word)"
+        assert "basic arithmetic" in result["tests_run"]
+        assert "string operations" in result["tests_run"]
+        send_sleep(device)
+
+    def test_bare_wildcard_multiword_runs_all_tests(self, device):
+        """RUN: *basic arithmetic* — tokenizer splits, all tests run."""
+        result = send_command(device, "RUN: *basic arithmetic*")
+        # BUG: should run 1 test, actually runs all non-skipped tests
+        assert len(result["tests_run"]) > 1, \
+            "Expected all tests to run (tokenizer splits bare wildcard pattern)"
+        assert "skip target active" in result["tests_run"]
+        send_sleep(device)
+
+    def test_tc_quoted_runs_one_test(self, device):
+        """RUN: --tc "basic arithmetic" — correct format, 1 test runs."""
+        result = send_command(device, 'RUN: --tc "basic arithmetic"')
+        assert result["tests_run"] == ["basic arithmetic"]
+        send_sleep(device)
+
+    def test_tc_exact_no_wildcards_runs_one_test(self, device):
+        """RUN: --tc "Arduino millis is running" — exact match works."""
+        result = send_command(device, 'RUN: --tc "Arduino millis is running"')
+        assert result["tests_run"] == ["Arduino millis is running"]
         send_sleep(device)

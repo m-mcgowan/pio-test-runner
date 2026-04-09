@@ -105,3 +105,70 @@ class TestCounts:
         else:
             pytest.fail("PTR:TESTS line not found")
         send_sleep(device)
+
+
+def _parse_ptr_tests(raw_lines):
+    """Extract total/skip/run from PTR:TESTS line."""
+    for line in raw_lines:
+        m = re.search(
+            r"PTR:TESTS total=(\d+) skip=(\d+) run=(\d+)", line
+        )
+        if m:
+            return {
+                "total": int(m.group(1)),
+                "skip": int(m.group(2)),
+                "run": int(m.group(3)),
+            }
+    return None
+
+
+class TestFilteredCounts:
+    """PTR:TESTS skip/run counts reflect filter excludes.
+
+    Bug: skip count only reflected RESUME_AFTER skips, not --tce/--tse
+    filter excludes. See BUG_tce_skip_count_not_reported.md.
+    """
+
+    def test_tce_reflected_in_skip_count(self, device):
+        """--tce should increase skip count for excluded tests."""
+        result = send_command(device, "RUN: --tce *string*")
+        counts = _parse_ptr_tests(result["raw_lines"])
+        assert counts is not None, "PTR:TESTS line not found"
+        # "string operations" should be excluded
+        assert "string operations" not in result["tests_run"]
+        # skip count must reflect the exclude
+        assert counts["skip"] > 0, \
+            f"Expected skip > 0 with --tce, got: {counts}"
+        assert counts["run"] < counts["total"], \
+            f"Expected run < total with --tce, got: {counts}"
+        send_sleep(device)
+
+    def test_tse_reflected_in_skip_count(self, device):
+        """--tse should increase skip count for excluded suite."""
+        result = send_command(device, "RUN: --tse *Protocol*")
+        counts = _parse_ptr_tests(result["raw_lines"])
+        assert counts is not None, "PTR:TESTS line not found"
+        assert "basic arithmetic" not in result["tests_run"]
+        assert counts["skip"] > 0, \
+            f"Expected skip > 0 with --tse, got: {counts}"
+        send_sleep(device)
+
+    def test_ts_reflected_in_skip_count(self, device):
+        """--ts should show only matching suite in run count."""
+        result = send_command(device, "RUN: --ts *Protocol*")
+        counts = _parse_ptr_tests(result["raw_lines"])
+        assert counts is not None, "PTR:TESTS line not found"
+        # Only Protocol tests should run (3 tests)
+        assert counts["run"] == len(result["tests_run"])
+        assert counts["skip"] > 0, \
+            f"Expected skip > 0 with --ts, got: {counts}"
+        send_sleep(device)
+
+    def test_tc_reflected_in_skip_count(self, device):
+        """--tc should show only matching test in run count."""
+        result = send_command(device, 'RUN: --tc "basic arithmetic"')
+        counts = _parse_ptr_tests(result["raw_lines"])
+        assert counts is not None, "PTR:TESTS line not found"
+        assert counts["run"] == 1
+        assert counts["skip"] == counts["total"] - 1
+        send_sleep(device)

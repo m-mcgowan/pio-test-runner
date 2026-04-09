@@ -34,3 +34,9 @@ TEST_CASE("Arduino millis is running") {
 }
 
 }
+
+// Intentionally outside any TEST_SUITE — verifies filter behavior for
+// tests with no suite name (m_test_suite is nullptr/empty in doctest).
+TEST_CASE("no suite standalone") {
+    CHECK(1 + 1 == 2);
+}

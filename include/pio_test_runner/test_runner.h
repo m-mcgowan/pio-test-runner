@@ -60,7 +60,8 @@ inline void signal_done() {
 /// The host will wait this long plus padding before reconnecting.
 ///
 /// After calling this, the device should enter deep sleep. The host
-/// uses the sleeping test name to build a filter for the wake cycle.
+/// uses the sleeping test name to build a filter for the wake cycle,
+/// and includes --wake so is_test_wake() returns true on Phase 2.
 inline void signal_sleep(uint32_t duration_ms) {
     emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)duration_ms);
 }
@@ -84,16 +85,18 @@ inline void signal_restart() {
 // Wake detection
 // =====================================================================
 
-/// Check if the device woke from deep sleep.
+/// Set by --wake flag in RUN: command (Phase 2 after sleep).
+/// Defined in doctest_runner.h. No RTC memory needed.
+extern bool _ptr_is_wake_cycle;
+
+/// Check if this test cycle is a Phase 2 wake from deep sleep.
 ///
-/// Returns true when esp_sleep_get_wakeup_cause() indicates a real
-/// wakeup (timer, GPIO, ULP, etc.) — not ESP_SLEEP_WAKEUP_UNDEFINED
-/// which indicates a normal boot or software reset.
+/// Returns true when the host sent --wake in the RUN: command,
+/// indicating this is a resume after signal_sleep(). No RTC memory
+/// needed — the host tracks sleep state and tells the firmware.
 ///
-/// Safe to call multiple times per boot — no consumption flag.
-/// The runner ensures only the sleeping test runs on the wake boot
-/// (via RUN: filter), and uses RESUME_AFTER on a separate cycle for
-/// remaining tests where wakeup_cause is naturally UNDEFINED.
+/// The flag is cleared at the end of each run_cycle(), so subsequent
+/// tests in RESUME_AFTER cycles see false.
 ///
 /// @code
 /// TEST_CASE("survives deep sleep") {
@@ -108,11 +111,12 @@ inline void signal_restart() {
 /// }
 /// @endcode
 inline bool is_test_wake() {
-#if defined(ESP_IDF_VERSION)
-    return esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED;
-#else
-    return false;
-#endif
+    return _ptr_is_wake_cycle;
+}
+
+/// Clear the wake flag. Called by run_cycle() after each test cycle.
+inline void clear_test_wake() {
+    _ptr_is_wake_cycle = false;
 }
 
 // =====================================================================

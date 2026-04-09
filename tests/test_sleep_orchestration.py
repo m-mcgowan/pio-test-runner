@@ -5,7 +5,7 @@ _handle_sleep_resume() with mocked serial I/O. They prove the runner
 correctly orchestrates the multi-phase sleep cycle:
 
   Phase 1: RUN_ALL -> tests run -> PTR:SLEEP (device sleeps)
-  Phase 2: RUN: *sleeping_test* -> sleeping test Phase 2 -> PTR:DONE
+  Phase 2: RUN: --tc "sleeping_test" -> sleeping test Phase 2 -> PTR:DONE
   Phase 3: RESUME_AFTER: sleeping_test -> remaining tests -> PTR:DONE
 
 After Phase 2, the runner sends RESUME_AFTER directly through the
@@ -165,7 +165,7 @@ class TestSingleSleepCycle:
 
       Phase 2 (after wake):
         Device: PTR:READY
-        Runner: RUN: *sleep test*
+        Runner: RUN: --tc "sleep test"
         Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
         Device: PTR:DONE
         Runner: (closes serial, no post-test command — intermediate cycle)
@@ -230,7 +230,7 @@ class TestSingleSleepCycle:
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "sleep test" in c for c in cmds), \
-            f"Expected RUN: *sleep test* in {cmds}"
+            f"Expected RUN: --tc \"sleep test\" in {cmds}"
         assert any("RESUME_AFTER" in c and "sleep test" in c for c in cmds), \
             f"Expected RESUME_AFTER: sleep test in {cmds}"
         # No RESTART between Phase 2 and RESUME_AFTER
@@ -252,7 +252,7 @@ class TestSleepWithResumeAfter:
 
       Phase 2 (after wake):
         Device: PTR:READY
-        Runner: RUN: *sleep test*
+        Runner: RUN: --tc "sleep test"
         Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
         Device: PTR:DONE
         Runner: (closes serial, intermediate cycle)
@@ -318,7 +318,7 @@ class TestSleepWithResumeAfter:
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "sleep test" in c for c in cmds), \
-            f"Expected RUN: *sleep test* in {cmds}"
+            f"Expected RUN: --tc \"sleep test\" in {cmds}"
         assert any("RESUME_AFTER" in c and "sleep test" in c for c in cmds), \
             f"Expected RESUME_AFTER: sleep test in {cmds}"
         assert not any("RESTART" in c for c in cmds), \
@@ -342,7 +342,7 @@ class TestTwoConsecutiveSleepTests:
 
       Phase 2: wake -> test_a Phase 2 completes
         Device: PTR:READY
-        Runner: RUN: *test_a*
+        Runner: RUN: --tc "test_a"
         Device: PTR:TEST:START suite="Sleep" name="test_a"
         Device: PTR:DONE
 
@@ -354,7 +354,7 @@ class TestTwoConsecutiveSleepTests:
 
       Phase 4: wake -> test_b Phase 2 completes
         Device: PTR:READY
-        Runner: RUN: *test_b*
+        Runner: RUN: --tc "test_b"
         Device: PTR:TEST:START suite="Sleep" name="test_b"
         Device: PTR:DONE
 
@@ -375,7 +375,7 @@ class TestTwoConsecutiveSleepTests:
             _crc("PTR:SLEEP ms=2000"),
         ])
 
-        # Phase 2: wake -> RUN: *test_a* -> test_a Phase 2 completes
+        # Phase 2: wake -> RUN: --tc "test_a" -> test_a Phase 2 completes
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc('PTR:TEST:START suite="Sleep" name="test_a"'),
@@ -389,7 +389,7 @@ class TestTwoConsecutiveSleepTests:
             _crc("PTR:SLEEP ms=3000"),
         ])
 
-        # Phase 4: wake -> RUN: *test_b* -> test_b Phase 2 completes
+        # Phase 4: wake -> RUN: --tc "test_b" -> test_b Phase 2 completes
         mock_ser.add_phase([
             _crc("PTR:READY"),
             _crc('PTR:TEST:START suite="Sleep" name="test_b"'),
@@ -433,11 +433,11 @@ class TestTwoConsecutiveSleepTests:
         cmds = mock_ser.get_commands()
         assert any("RUN_ALL" in c for c in cmds), f"Expected RUN_ALL in {cmds}"
         assert any("RUN:" in c and "test_a" in c for c in cmds), \
-            f"Expected RUN: *test_a* in {cmds}"
+            f"Expected Phase 2 RUN: --tc \"test_a\" in {cmds}"
         assert any("RESUME_AFTER" in c and "test_a" in c for c in cmds), \
             f"Expected RESUME_AFTER: test_a in {cmds}"
         assert any("RUN:" in c and "test_b" in c for c in cmds), \
-            f"Expected RUN: *test_b* in {cmds}"
+            f"Expected Phase 2 RUN: --tc \"test_b\" in {cmds}"
         assert any("RESUME_AFTER" in c and "test_b" in c for c in cmds), \
             f"Expected RESUME_AFTER: test_b in {cmds}"
         assert not any("RESTART" in c for c in cmds), \
@@ -582,3 +582,141 @@ class TestFailurePropagationAcrossSleepCycles:
         assert "calibration" in passed_names or "Sensor/calibration" in passed_names, \
             f"Expected calibration in passed: {passed_names}"
         assert len(runner._test_failures) == 0
+
+
+class TestPhase2CommandFormat:
+    """The Phase 2 RUN: command must use --tc with a quoted exact name.
+
+    Bug: the runner previously sent `RUN: *test name with spaces*` as a
+    bare wildcard-wrapped pattern. The firmware tokenizer splits on spaces,
+    producing garbage args that doctest ignores — skip=0, all tests re-run.
+
+    See BUG_resume_loop_prevents_later_suites.md for the full incident.
+    """
+
+    def test_multiword_name_must_be_quoted(self):
+        """Phase 2 command for a multi-word test must use --tc "name".
+
+        Without quoting, the firmware tokenizer splits "Probe after restart"
+        into ["Probe", "after", "restart", ...] — none are valid doctest
+        flags, so the filter is silently ignored and all tests re-run.
+        """
+        mock_ser = MockSerial()
+
+        # Phase 1: test with spaces in name triggers sleep
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc("PTR:SLEEP ms=0"),
+        ])
+
+        # Phase 2: wake -> resume
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc("PTR:DONE"),
+        ])
+
+        # Phase 3: RESUME_AFTER -> done
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc("PTR:DONE"),
+        ])
+
+        runner = make_orchestrated_runner(mock_ser)
+        open_count = 0
+
+        def mock_open_serial(reset=True):
+            nonlocal open_count
+            if open_count > 0:
+                mock_ser.reopen()
+            runner._ser = mock_ser
+            runner._port_path = "/dev/mock"
+            open_count += 1
+
+        fast_time = FastClock(start=1000.0, step=100.0)
+
+        with patch.object(runner, "configure_orchestrated", return_value=True), \
+             patch.object(runner, "configure_sleep_padding", return_value=0), \
+             patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
+             patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
+             patch.dict(os.environ, {"PTR_POST_TEST": "none"}, clear=True), \
+             patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
+             patch("time.sleep"), \
+             patch("time.monotonic", return_value=0), \
+             patch("time.time", side_effect=fast_time):
+            runner.stage_testing()
+
+        # Find the Phase 2 RUN: command (not RUN_ALL)
+        cmds = mock_ser.get_commands()
+        run_cmds = [c for c in cmds if "RUN:" in c and "RUN_ALL" not in c
+                    and "RESUME_AFTER" not in c]
+        assert len(run_cmds) >= 1, f"Expected at least one RUN: command in {cmds}"
+
+        phase2_cmd = run_cmds[0]
+        # The command must use --tc with quoting so the firmware tokenizer
+        # keeps the multi-word name as a single argument
+        assert '--tc' in phase2_cmd, \
+            f"Phase 2 must use --tc flag, got: {phase2_cmd}"
+        assert '"Probe after restart with full IMU lifecycle"' in phase2_cmd, \
+            f"Phase 2 must quote the multi-word test name, got: {phase2_cmd}"
+
+    def test_exact_match_no_wildcards(self):
+        """Phase 2 command must not use wildcard wrapping (*name*).
+
+        Wildcards cause substring collisions: if tests "sleep test" and
+        "extended sleep test" both exist, `RUN: *sleep test*` matches both.
+        The Phase 2 command should use an exact match.
+        """
+        mock_ser = MockSerial()
+
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Sleep" name="sleep test"'),
+            _crc("PTR:SLEEP ms=3000"),
+        ])
+
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc('PTR:TEST:START suite="Sleep" name="sleep test"'),
+            _crc("PTR:DONE"),
+        ])
+
+        mock_ser.add_phase([
+            _crc("PTR:READY"),
+            _crc("PTR:DONE"),
+        ])
+
+        runner = make_orchestrated_runner(mock_ser)
+        open_count = 0
+
+        def mock_open_serial(reset=True):
+            nonlocal open_count
+            if open_count > 0:
+                mock_ser.reopen()
+            runner._ser = mock_ser
+            runner._port_path = "/dev/mock"
+            open_count += 1
+
+        fast_time = FastClock(start=1000.0, step=100.0)
+
+        with patch.object(runner, "configure_orchestrated", return_value=True), \
+             patch.object(runner, "configure_sleep_padding", return_value=0), \
+             patch.object(runner, "_open_serial", side_effect=mock_open_serial), \
+             patch.object(runner, "_close_serial", side_effect=lambda: mock_ser.close()), \
+             patch.dict(os.environ, {"PTR_POST_TEST": "none"}, clear=True), \
+             patch("pio_test_runner.runner.SleepWakeMonitor", MockSleepWakeMonitor), \
+             patch("time.sleep"), \
+             patch("time.monotonic", return_value=0), \
+             patch("time.time", side_effect=fast_time):
+            runner.stage_testing()
+
+        cmds = mock_ser.get_commands()
+        run_cmds = [c for c in cmds if "RUN:" in c and "RUN_ALL" not in c
+                    and "RESUME_AFTER" not in c]
+        assert len(run_cmds) >= 1, f"Expected RUN: command in {cmds}"
+
+        phase2_cmd = run_cmds[0]
+        # Must not contain wildcards around the test name
+        assert "*sleep test*" not in phase2_cmd, \
+            f"Phase 2 must not use wildcard wrapping, got: {phase2_cmd}"

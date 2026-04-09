@@ -622,8 +622,12 @@ class EmbeddedTestRunner(_BaseRunner):
             # No port path available — fall back to blind wait
             time.sleep(sleep_s + padding)
 
-        # Resume test via READY/RUN handshake
-        filter_cmd = f"RUN: *{self.protocol.sleeping_test_name}*"
+        # Resume test via READY/RUN handshake — use --tc with quoted exact
+        # name. Without this, the firmware tokenizer splits multi-word names
+        # on spaces, producing garbage args that doctest ignores (skip=0,
+        # all tests re-run). Wildcards are also avoided to prevent substring
+        # collisions. See BUG_resume_loop_prevents_later_suites.md.
+        filter_cmd = f'RUN: --wake --tc "{self.protocol.sleeping_test_name}"'
         _echo(f"[runner] Resuming with: {filter_cmd}")
 
         self.protocol.reset_for_wake()
@@ -849,7 +853,7 @@ class EmbeddedTestRunner(_BaseRunner):
     # ------------------------------------------------------------------
 
     def _print_summary(self):
-        """Print memory and timing summary after tests complete."""
+        """Print memory, timing, and aggregate test summary after tests complete."""
         self.timing_tracker.finalize()
 
         mem_report = self.memory_tracker.report()
@@ -861,6 +865,19 @@ class EmbeddedTestRunner(_BaseRunner):
         if timing_report:
             _echo("")
             _echo(timing_report)
+
+        # Aggregate summary across all sleep/wake cycles
+        completed = self.protocol.completed_tests
+        failed = list(self._test_failures.keys())
+        passed = [t for t in completed if t not in self._test_failures]
+        if len(completed) > 0:
+            parts = [f"{len(completed)} ran"]
+            if passed:
+                parts.append(f"{len(passed)} passed")
+            if failed:
+                parts.append(f"{len(failed)} failed")
+            _echo("")
+            _echo(f"[runner] {' | '.join(parts)}")
 
     # ------------------------------------------------------------------
     # Teardown

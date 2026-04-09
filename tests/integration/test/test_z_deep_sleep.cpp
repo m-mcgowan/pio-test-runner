@@ -10,7 +10,7 @@
  *   1. Device runs phase 1, emits "PTR:SLEEP ms=3000 *XX", enters deep sleep
  *   2. Python runner sees PTR:SLEEP, closes serial, waits ~8s (3s + 5s padding)
  *   3. Device wakes from timer, reboots, prints READY
- *   4. Runner sends "RUN: *survives deep sleep*"
+ *   4. Runner sends "RUN: --tc "survives deep sleep""
  *   5. Test re-runs — wakeup cause is TIMER → phase 2 passes → DONE
  *
  * USB-CDC note: The serial port disappears during deep sleep. The runner

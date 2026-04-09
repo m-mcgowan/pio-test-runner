@@ -185,7 +185,7 @@ When a test enters deep sleep:
 1. **First cycle**: `RUN_ALL` — tests run until one calls
    `signal_sleep()`.
 2. **Sleep resume**: Host waits, reconnects, sends
-   `RUN: *<sleeping_test>*` — runs Phase 2 only.
+   `RUN: --tc "<sleeping_test>"` — runs Phase 2 only.
 3. **Remaining cycle**: `RESUME_AFTER: <sleeping_test>` — device
    uses doctest's `first` option to skip past completed tests.
 4. **Repeat**: If another test sleeps during step 3, the loop
