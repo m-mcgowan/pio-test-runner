@@ -19,7 +19,7 @@ def device(port, baud):
 
 
 class TestMemoryTracking:
-    """PTR:MEM:BEFORE/AFTER markers are emitted for each test."""
+    """ETST:MEM:BEFORE/AFTER markers are emitted for each test."""
 
     def test_mem_markers_present(self, device):
         result = send_command(device, "RUN: --ts *Protocol*")
@@ -44,16 +44,16 @@ class TestMemoryTracking:
         result = send_command(device, "RUN: --tc *basic*arithmetic*")
         # Check raw lines for largest= field
         assert has_line_matching(
-            result["raw_lines"], r"PTR:MEM:BEFORE.*largest=\d+"
+            result["raw_lines"], r"ETST:MEM:BEFORE.*largest=\d+"
         )
         assert has_line_matching(
-            result["raw_lines"], r"PTR:MEM:AFTER.*largest=\d+"
+            result["raw_lines"], r"ETST:MEM:AFTER.*largest=\d+"
         )
         send_sleep(device)
 
 
 class TestTimingMarkers:
-    """PTR:TEST:START markers include suite and name."""
+    """ETST:TEST:START markers include suite and name."""
 
     def test_start_markers_present(self, device):
         result = send_command(device, "RUN: --ts *Protocol*")
@@ -81,37 +81,37 @@ class TestTimingMarkers:
 
 
 class TestCounts:
-    """PTR:TESTS total/skip/run counts are reported."""
+    """ETST:TESTS total/skip/run counts are reported."""
 
     def test_test_count_reported(self, device):
         result = send_command(device, "RUN_ALL")
         assert has_line_matching(
-            result["raw_lines"], r"PTR:TESTS total=\d+ skip=\d+ run=\d+"
+            result["raw_lines"], r"ETST:TESTS total=\d+ skip=\d+ run=\d+"
         )
         send_sleep(device)
 
     def test_count_matches_summary(self, device):
         result = send_command(device, "RUN_ALL")
-        # Find the PTR:TESTS line
+        # Find the ETST:TESTS line
         for line in result["raw_lines"]:
             m = re.search(
-                r"PTR:TESTS total=(\d+) skip=(\d+) run=(\d+)", line
+                r"ETST:TESTS total=(\d+) skip=(\d+) run=(\d+)", line
             )
             if m:
                 ptr_total = int(m.group(1))
-                # Total from PTR:TESTS should match doctest's total + skipped
+                # Total from ETST:TESTS should match doctest's total + skipped
                 assert ptr_total > 0
                 break
         else:
-            pytest.fail("PTR:TESTS line not found")
+            pytest.fail("ETST:TESTS line not found")
         send_sleep(device)
 
 
 def _parse_ptr_tests(raw_lines):
-    """Extract total/skip/run from PTR:TESTS line."""
+    """Extract total/skip/run from ETST:TESTS line."""
     for line in raw_lines:
         m = re.search(
-            r"PTR:TESTS total=(\d+) skip=(\d+) run=(\d+)", line
+            r"ETST:TESTS total=(\d+) skip=(\d+) run=(\d+)", line
         )
         if m:
             return {
@@ -123,7 +123,7 @@ def _parse_ptr_tests(raw_lines):
 
 
 class TestFilteredCounts:
-    """PTR:TESTS skip/run counts reflect filter excludes.
+    """ETST:TESTS skip/run counts reflect filter excludes.
 
     Bug: skip count only reflected RESUME_AFTER skips, not --tce/--tse
     filter excludes. See BUG_tce_skip_count_not_reported.md.
@@ -133,7 +133,7 @@ class TestFilteredCounts:
         """--tce should increase skip count for excluded tests."""
         result = send_command(device, "RUN: --tce *string*")
         counts = _parse_ptr_tests(result["raw_lines"])
-        assert counts is not None, "PTR:TESTS line not found"
+        assert counts is not None, "ETST:TESTS line not found"
         # "string operations" should be excluded
         assert "string operations" not in result["tests_run"]
         # skip count must reflect the exclude
@@ -147,7 +147,7 @@ class TestFilteredCounts:
         """--tse should increase skip count for excluded suite."""
         result = send_command(device, "RUN: --tse *Protocol*")
         counts = _parse_ptr_tests(result["raw_lines"])
-        assert counts is not None, "PTR:TESTS line not found"
+        assert counts is not None, "ETST:TESTS line not found"
         assert "basic arithmetic" not in result["tests_run"]
         assert counts["skip"] > 0, \
             f"Expected skip > 0 with --tse, got: {counts}"
@@ -157,7 +157,7 @@ class TestFilteredCounts:
         """--ts should show only matching suite in run count."""
         result = send_command(device, "RUN: --ts *Protocol*")
         counts = _parse_ptr_tests(result["raw_lines"])
-        assert counts is not None, "PTR:TESTS line not found"
+        assert counts is not None, "ETST:TESTS line not found"
         # Only Protocol tests should run (3 tests)
         assert counts["run"] == len(result["tests_run"])
         assert counts["skip"] > 0, \
@@ -168,7 +168,7 @@ class TestFilteredCounts:
         """--tc should show only matching test in run count."""
         result = send_command(device, 'RUN: --tc "basic arithmetic"')
         counts = _parse_ptr_tests(result["raw_lines"])
-        assert counts is not None, "PTR:TESTS line not found"
+        assert counts is not None, "ETST:TESTS line not found"
         assert counts["run"] == 1
         assert counts["skip"] == counts["total"] - 1
         send_sleep(device)

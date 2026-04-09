@@ -4,7 +4,7 @@
 /// @brief Shared protocol primitives for pio-test-runner wire format.
 ///
 /// All protocol lines use the format:
-///     PTR:<TAG>[:<SUBTAG>] [payload ...] *XX
+///     ETST:<TAG>[:<SUBTAG>] [payload ...] *XX
 ///
 /// Where *XX is a CRC-8/MAXIM checksum (2 hex chars) of everything
 /// before the " *XX" suffix. The CRC lets the host reject garbled
@@ -42,7 +42,7 @@ namespace pio_test_runner {
 static constexpr size_t MAX_LINE_LEN = 256;
 
 /// Protocol line prefix. All protocol lines start with this.
-static constexpr const char* PREFIX = "PTR:";
+static constexpr const char* PREFIX = "ETST:";
 
 // -----------------------------------------------------------------
 // CRC-8/MAXIM (polynomial 0x31, init 0x00)
@@ -84,8 +84,8 @@ inline uint8_t crc8(const char* str) {
 /// @param ...  Format arguments
 ///
 /// Example:
-///   emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)3000);
-///   // writes: "PTR:SLEEP ms=3000 *A7\n"
+///   emit(Serial, "ETST:SLEEP ms=%lu", (unsigned long)3000);
+///   // writes: "ETST:SLEEP ms=3000 *A7\n"
 inline void emit(Print& out, const char* fmt, ...) {
     char buf[MAX_LINE_LEN + 8];  // room for " *XX\n\0"
 

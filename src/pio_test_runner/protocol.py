@@ -1,8 +1,8 @@
-"""Shared protocol parser for PTR: wire format.
+"""Shared protocol parser for ETST: wire format.
 
 All protocol lines use the format::
 
-    PTR:<TAG>[:<SUBTAG>] [payload ...] *XX
+    ETST:<TAG>[:<SUBTAG>] [payload ...] *XX
 
 Where ``*XX`` is a CRC-8/MAXIM checksum (2 hex chars) of everything
 before the `` *XX`` suffix.
@@ -16,7 +16,7 @@ Usage::
 
     from pio_test_runner.protocol import parse_line
 
-    parsed = parse_line('PTR:READY *7F')
+    parsed = parse_line('ETST:READY *7F')
     if parsed and parsed.crc_valid:
         print(parsed.tag)  # "READY"
 """
@@ -25,20 +25,20 @@ import re
 from dataclasses import dataclass
 
 # Protocol line prefix
-PREFIX = "PTR:"
+PREFIX = "ETST:"
 
 # CRC-8/MAXIM polynomial
 _CRC8_POLY = 0x31
 _CRC8_INIT = 0x00
 
-# Match: PTR:<tag> [payload] *XX  (CRC is optional for parsing flexibility)
+# Match: ETST:<tag> [payload] *XX  (CRC is optional for parsing flexibility)
 _LINE_RE = re.compile(
-    r"^PTR:(\S+?)(?:\s+(.*?))?\s+\*([0-9A-Fa-f]{2})$"
+    r"^ETST:(\S+?)(?:\s+(.*?))?\s+\*([0-9A-Fa-f]{2})$"
 )
 
-# Fallback: PTR:<tag> [payload]  (no CRC — for testing or legacy)
+# Fallback: ETST:<tag> [payload]  (no CRC — for testing or legacy)
 _LINE_NO_CRC_RE = re.compile(
-    r"^PTR:(\S+?)(?:\s+(.*))?$"
+    r"^ETST:(\S+?)(?:\s+(.*))?$"
 )
 
 # Key=value or key="quoted value" or bare flag
@@ -70,17 +70,17 @@ def format_crc(content: str) -> str:
     """Format a protocol line with CRC suffix.
 
     Args:
-        content: The line content without CRC (e.g. "PTR:READY").
+        content: The line content without CRC (e.g. "ETST:READY").
 
     Returns:
-        The line with CRC appended (e.g. "PTR:READY *7F").
+        The line with CRC appended (e.g. "ETST:READY *7F").
     """
     return f"{content} *{compute_crc8(content):02X}"
 
 
 @dataclass
 class ParsedTag:
-    """Result of parsing a PTR: protocol line.
+    """Result of parsing a ETST: protocol line.
 
     Attributes:
         tag: Full tag string (e.g. "READY", "MEM:BEFORE", "TEST:START").
@@ -96,9 +96,9 @@ class ParsedTag:
 
 
 def parse_line(line: str) -> ParsedTag | None:
-    """Parse a PTR: protocol line.
+    """Parse a ETST: protocol line.
 
-    Returns None if the line doesn't start with ``PTR:``.
+    Returns None if the line doesn't start with ``ETST:``.
     Validates CRC if present. Lines without CRC are accepted
     (``crc_valid=None``) for backward compatibility and testing.
 
@@ -142,6 +142,88 @@ def parse_line(line: str) -> ParsedTag | None:
         )
 
     return None
+
+
+# =====================================================================
+# Protocol message builders
+# =====================================================================
+# Use these instead of string literals so the prefix is defined once.
+
+
+def msg_ready() -> str:
+    """Build ETST:READY message (with CRC)."""
+    return format_crc(f"{PREFIX}READY")
+
+
+def msg_done() -> str:
+    """Build ETST:DONE message (with CRC)."""
+    return format_crc(f"{PREFIX}DONE")
+
+
+def msg_tests(total: int, skip: int = 0, run: int | None = None) -> str:
+    """Build ETST:TESTS message (with CRC)."""
+    if run is None:
+        run = total - skip
+    return format_crc(f"{PREFIX}TESTS total={total} skip={skip} run={run}")
+
+
+def msg_test_start(suite: str, name: str, timeout: int | None = None) -> str:
+    """Build ETST:TEST:START message (with CRC)."""
+    payload = f'{PREFIX}TEST:START suite="{suite}" name="{name}"'
+    if timeout is not None:
+        payload += f" timeout={timeout}"
+    return format_crc(payload)
+
+
+def msg_sleep(ms: int) -> str:
+    """Build ETST:SLEEP message (with CRC)."""
+    return format_crc(f"{PREFIX}SLEEP ms={ms}")
+
+
+def msg_busy(ms: int) -> str:
+    """Build ETST:BUSY message (with CRC)."""
+    return format_crc(f"{PREFIX}BUSY ms={ms}")
+
+
+def msg_restart() -> str:
+    """Build ETST:RESTART message (with CRC)."""
+    return format_crc(f"{PREFIX}RESTART")
+
+
+def msg_disconnect(ms: int) -> str:
+    """Build ETST:DISCONNECT message (with CRC)."""
+    return format_crc(f"{PREFIX}DISCONNECT ms={ms}")
+
+
+def msg_reconnect() -> str:
+    """Build ETST:RECONNECT message (with CRC)."""
+    return format_crc(f"{PREFIX}RECONNECT")
+
+
+def msg_mem_before(free: int, min_free: int, largest: int | None = None) -> str:
+    """Build ETST:MEM:BEFORE message (with CRC)."""
+    payload = f"{PREFIX}MEM:BEFORE free={free} min={min_free}"
+    if largest is not None:
+        payload += f" largest={largest}"
+    return format_crc(payload)
+
+
+def msg_mem_after(free: int, delta: int, min_free: int, largest: int | None = None) -> str:
+    """Build ETST:MEM:AFTER message (with CRC)."""
+    payload = f"{PREFIX}MEM:AFTER free={free} delta={delta:+d} min={min_free}"
+    if largest is not None:
+        payload += f" largest={largest}"
+    return format_crc(payload)
+
+
+def msg_mem_warn(leaked: int) -> str:
+    """Build ETST:MEM:WARN message (with CRC)."""
+    return format_crc(f"{PREFIX}MEM:WARN leaked={leaked}")
+
+
+# =====================================================================
+# Payload parsing
+# =====================================================================
 
 
 def parse_payload(payload_str: str) -> dict[str, str | bool]:

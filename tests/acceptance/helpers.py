@@ -15,7 +15,7 @@ def open_device(port, baud=115200, retries=10):
 
 
 def wait_for_ready(ser, timeout=15):
-    """Wait for PTR:READY from device.
+    """Wait for ETST:READY from device.
 
     If the device doesn't respond, sends RESTART to wake it from
     the idle loop. If the port itself is dead (device sleeping),
@@ -28,7 +28,7 @@ def wait_for_ready(ser, timeout=15):
         except Exception:
             time.sleep(1)
             continue
-        if "PTR:READY" in line:
+        if "ETST:READY" in line:
             return True
     # Device may be in idle loop but not sending READY yet — send RESTART
     try:
@@ -48,13 +48,13 @@ def wait_for_ready(ser, timeout=15):
         except Exception:
             time.sleep(1)
             continue
-        if "PTR:READY" in line:
+        if "ETST:READY" in line:
             return True
     return False
 
 
 def send_command(ser, command, timeout=120):
-    """Send a command and collect output until PTR:DONE.
+    """Send a command and collect output until ETST:DONE.
 
     Returns a dict with:
       tests_run:   list of test names that executed
@@ -66,7 +66,7 @@ def send_command(ser, command, timeout=120):
       test_starts: list of dicts with suite, name, timeout fields
       raw_lines:   all output lines
     """
-    assert wait_for_ready(ser), "Device did not send PTR:READY"
+    assert wait_for_ready(ser), "Device did not send ETST:READY"
 
     crc_command = format_crc(command)
     print(f"[accept] Sending: {crc_command}")
@@ -104,7 +104,7 @@ def send_command(ser, command, timeout=120):
 
         # Parse test start markers
         m = re.search(
-            r'PTR:TEST:START\s+suite="([^"]*)"\s+name="([^"]*)"(?:\s+timeout=(\d+))?',
+            r'ETST:TEST:START\s+suite="([^"]*)"\s+name="([^"]*)"(?:\s+timeout=(\d+))?',
             line,
         )
         if m:
@@ -117,11 +117,11 @@ def send_command(ser, command, timeout=120):
             test_starts.append(start_info)
 
         # Parse memory markers
-        m = re.search(r"PTR:MEM:BEFORE\s+free=(\d+)", line)
+        m = re.search(r"ETST:MEM:BEFORE\s+free=(\d+)", line)
         if m:
             free_before = int(m.group(1))
 
-        m = re.search(r"PTR:MEM:AFTER\s+free=(\d+)\s+delta=([+-]?\d+)", line)
+        m = re.search(r"ETST:MEM:AFTER\s+free=(\d+)\s+delta=([+-]?\d+)", line)
         if m:
             free_after = int(m.group(1))
             delta = int(m.group(2))
@@ -145,7 +145,7 @@ def send_command(ser, command, timeout=120):
             failed = int(m.group(3))
             skipped = int(m.group(4))
 
-        if "PTR:DONE" in line:
+        if "ETST:DONE" in line:
             break
 
     return {

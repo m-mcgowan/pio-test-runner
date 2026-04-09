@@ -3,7 +3,7 @@
 
 Validates the complete sleep/wake cycle:
 1. Device runs tests until one calls signal_sleep()
-2. Host detects PTR:SLEEP, waits for device to wake
+2. Host detects ETST:SLEEP, waits for device to wake
 3. Host sends RUN: filter for the sleeping test (Phase 2)
 4. Host sends RESUME_AFTER: to run remaining tests
 5. All tests complete
@@ -47,7 +47,7 @@ def collect_until(ser, sentinel, timeout=60):
 
 
 def wait_for_ready_after_sleep(port, baud, sleep_ms, timeout=30):
-    """Wait for device to wake from sleep and send PTR:READY.
+    """Wait for device to wake from sleep and send ETST:READY.
 
     After deep sleep, the USB-CDC port disappears and reappears.
     We re-open the serial port and wait for READY.
@@ -67,13 +67,13 @@ def wait_for_ready_after_sleep(port, baud, sleep_ms, timeout=30):
             ready_deadline = time.time() + 10
             while time.time() < ready_deadline:
                 line = ser.readline().decode("utf-8", errors="replace").strip()
-                if "PTR:READY" in line:
+                if "ETST:READY" in line:
                     return ser
             ser.close()
         except (OSError, pyserial.SerialException):
             time.sleep(1)
 
-    pytest.fail("Device did not send PTR:READY after sleep wake")
+    pytest.fail("Device did not send ETST:READY after sleep wake")
 
 
 class TestDeepSleep:
@@ -87,24 +87,24 @@ class TestDeepSleep:
         """Complete sleep → wake → resume → remaining cycle."""
         # Phase 1: Run all tests until one sleeps
         assert has_line_matching(
-            collect_until(device, "PTR:READY"), r"PTR:READY"
+            collect_until(device, "ETST:READY"), r"ETST:READY"
         )
 
         cmd = format_crc("RUN_ALL")
         device.write((cmd + "\n").encode())
 
-        # Collect until PTR:SLEEP
-        lines = collect_until(device, "PTR:SLEEP", timeout=120)
-        sleep_line = [l for l in lines if "PTR:SLEEP" in l]
-        assert sleep_line, "Expected PTR:SLEEP but test completed without sleep"
+        # Collect until ETST:SLEEP
+        lines = collect_until(device, "ETST:SLEEP", timeout=120)
+        sleep_line = [l for l in lines if "ETST:SLEEP" in l]
+        assert sleep_line, "Expected ETST:SLEEP but test completed without sleep"
 
         # Extract sleep duration
-        m = re.search(r"PTR:SLEEP ms=(\d+)", sleep_line[0])
+        m = re.search(r"ETST:SLEEP ms=(\d+)", sleep_line[0])
         assert m, f"Could not parse sleep duration from: {sleep_line[0]}"
         sleep_ms = int(m.group(1))
 
-        # Extract sleeping test name from PTR:TEST:START before SLEEP
-        test_starts = [l for l in lines if "PTR:TEST:START" in l]
+        # Extract sleeping test name from ETST:TEST:START before SLEEP
+        test_starts = [l for l in lines if "ETST:TEST:START" in l]
         assert test_starts, "No test started before sleep"
         m = re.search(r'name="([^"]*)"', test_starts[-1])
         sleeping_test = m.group(1)
@@ -119,17 +119,17 @@ class TestDeepSleep:
         ser.write((filter_cmd + "\n").encode())
 
         # Collect Phase 2 results
-        phase2_lines = collect_until(ser, "PTR:DONE", timeout=60)
-        assert has_line_matching(phase2_lines, r"PTR:DONE")
+        phase2_lines = collect_until(ser, "ETST:DONE", timeout=60)
+        assert has_line_matching(phase2_lines, r"ETST:DONE")
 
         # Phase 3: Run remaining tests after the sleeping test
-        remaining_lines = collect_until(ser, "PTR:READY", timeout=10)
+        remaining_lines = collect_until(ser, "ETST:READY", timeout=10)
 
         resume_cmd = format_crc(f"RESUME_AFTER: {sleeping_test}")
         ser.write((resume_cmd + "\n").encode())
 
-        final_lines = collect_until(ser, "PTR:DONE", timeout=120)
-        assert has_line_matching(final_lines, r"PTR:DONE")
+        final_lines = collect_until(ser, "ETST:DONE", timeout=120)
+        assert has_line_matching(final_lines, r"ETST:DONE")
 
         # Cleanup
         sleep_cmd = format_crc("SLEEP")

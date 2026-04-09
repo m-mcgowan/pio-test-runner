@@ -1,6 +1,6 @@
 /**
  * @file test_disconnect.cpp
- * @brief Tests the PTR:DISCONNECT/RECONNECT protocol markers.
+ * @brief Tests the ETST:DISCONNECT/RECONNECT protocol markers.
  *
  * Emits disconnect/reconnect markers that the Python DisconnectHandler
  * parses. No actual serial disconnect — just protocol validation.

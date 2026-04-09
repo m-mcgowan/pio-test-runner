@@ -211,7 +211,7 @@ class EmbeddedTestRunner(_BaseRunner):
         self._check_crash()
         self._check_assertion_failure(line)
 
-        # Report failures when PTR:DONE transitions to FINISHED
+        # Report failures when ETST:DONE transitions to FINISHED
         if self.protocol.state == ProtocolState.FINISHED and prev_state != ProtocolState.FINISHED:
             self._report_test_failures()
 
@@ -434,13 +434,13 @@ class EmbeddedTestRunner(_BaseRunner):
                 if self.protocol.state == ProtocolState.WAITING_FOR_READY:
                     if time.time() > ready_deadline:
                         _secho(
-                            "\nTIMEOUT: No PTR:READY received in 30s — aborting",
+                            "\nTIMEOUT: No ETST:READY received in 30s — aborting",
                             fg="red", err=True,
                         )
                         self._add_error_case(
                             "ready_timeout",
-                            "Device did not send PTR:READY within 30s",
-                            RuntimeError("PTR:READY timeout"),
+                            "Device did not send ETST:READY within 30s",
+                            RuntimeError("ETST:READY timeout"),
                         )
                         break
 
@@ -467,17 +467,17 @@ class EmbeddedTestRunner(_BaseRunner):
 
             # Check if finished
             if self.protocol.state == ProtocolState.FINISHED:
-                _echo("[runner] PTR:DONE received")
+                _echo("[runner] ETST:DONE received")
                 self._report_test_failures()
                 break
             if self.crash_detector.triggered:
                 break
 
-        # If we exited the loop without PTR:DONE (e.g. hang, disconnect,
+        # If we exited the loop without ETST:DONE (e.g. hang, disconnect,
         # or PIO declared finished via doctest summary), try to drain
-        # remaining output to catch PTR:DONE.
+        # remaining output to catch ETST:DONE.
         if self.protocol.state != ProtocolState.FINISHED and self._ser and self._ser.is_open:
-            _echo("[runner] Waiting for PTR:DONE...")
+            _echo("[runner] Waiting for ETST:DONE...")
             done_deadline = time.time() + 10
             while time.time() < done_deadline:
                 try:
@@ -487,7 +487,7 @@ class EmbeddedTestRunner(_BaseRunner):
                 if data:
                     self._on_serial_data(data)
                 if self.protocol.state == ProtocolState.FINISHED:
-                    _echo("[runner] PTR:DONE received")
+                    _echo("[runner] ETST:DONE received")
                     self._report_test_failures()
                     break
 
@@ -787,7 +787,7 @@ class EmbeddedTestRunner(_BaseRunner):
     def _report_test_failures(self):
         """Add FAILED test cases to the suite for any tracked assertion failures.
 
-        Called after PTR:DONE to ensure failures are reported even if PIO's
+        Called after ETST:DONE to ensure failures are reported even if PIO's
         own parser didn't see them.
         """
         if TestCase is None or TestStatus is None:

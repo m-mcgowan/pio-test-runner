@@ -8,7 +8,7 @@
 
 /// @brief PlatformIO test runner protocol — firmware-side API.
 ///
-/// All protocol lines use the PTR: prefix with CRC-8 checksum.
+/// All protocol lines use the ETST: prefix with CRC-8 checksum.
 /// See protocol.h for wire format details.
 ///
 /// @code
@@ -24,12 +24,12 @@ namespace pio_test_runner {
 /// Tell the host we're going away for @p duration_ms milliseconds.
 /// Call this BEFORE Serial.end() / deep sleep / reset.
 inline void request_disconnect(uint32_t duration_ms) {
-    emit(Serial, "PTR:DISCONNECT ms=%lu", (unsigned long)duration_ms);
+    emit(Serial, "ETST:DISCONNECT ms=%lu", (unsigned long)duration_ms);
 }
 
 /// Tell the host we're back. Call this AFTER Serial.begin().
 inline void signal_reconnect() {
-    emit(Serial, "PTR:RECONNECT");
+    emit(Serial, "ETST:RECONNECT");
 }
 
 // =====================================================================
@@ -39,17 +39,17 @@ inline void signal_reconnect() {
 /// Signal that the device is ready to receive test commands.
 /// The host will respond with RUN_ALL or RUN:<filter>.
 inline void signal_ready() {
-    emit(Serial, "PTR:READY");
+    emit(Serial, "ETST:READY");
 }
 
 /// Report test counts before execution begins.
 inline void print_test_count(unsigned total, unsigned skip, unsigned run) {
-    emit(Serial, "PTR:TESTS total=%u skip=%u run=%u", total, skip, run);
+    emit(Serial, "ETST:TESTS total=%u skip=%u run=%u", total, skip, run);
 }
 
 /// Signal that all tests have completed.
 inline void signal_done() {
-    emit(Serial, "PTR:DONE");
+    emit(Serial, "ETST:DONE");
 }
 
 // =====================================================================
@@ -63,13 +63,13 @@ inline void signal_done() {
 /// uses the sleeping test name to build a filter for the wake cycle,
 /// and includes --wake so is_test_wake() returns true on Phase 2.
 inline void signal_sleep(uint32_t duration_ms) {
-    emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)duration_ms);
+    emit(Serial, "ETST:SLEEP ms=%lu", (unsigned long)duration_ms);
 }
 
 /// Signal that the device will be busy (no serial output) for up to @p ms.
 /// The host extends its hang timeout accordingly.
 inline void signal_busy(uint32_t ms) {
-    emit(Serial, "PTR:BUSY ms=%lu", (unsigned long)ms);
+    emit(Serial, "ETST:BUSY ms=%lu", (unsigned long)ms);
 }
 
 /// Signal that the device is about to do a software restart.
@@ -78,7 +78,7 @@ inline void signal_busy(uint32_t ms) {
 ///
 /// After calling this, the device should call esp_restart().
 inline void signal_restart() {
-    emit(Serial, "PTR:RESTART");
+    emit(Serial, "ETST:RESTART");
 }
 
 // =====================================================================
@@ -127,9 +127,9 @@ inline void clear_test_wake() {
 inline void print_mem_before(size_t free_heap, size_t min_heap) {
 #if defined(ESP_IDF_VERSION)
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    emit(Serial, "PTR:MEM:BEFORE free=%zu min=%zu largest=%zu", free_heap, min_heap, largest);
+    emit(Serial, "ETST:MEM:BEFORE free=%zu min=%zu largest=%zu", free_heap, min_heap, largest);
 #else
-    emit(Serial, "PTR:MEM:BEFORE free=%zu min=%zu", free_heap, min_heap);
+    emit(Serial, "ETST:MEM:BEFORE free=%zu min=%zu", free_heap, min_heap);
 #endif
 }
 
@@ -137,17 +137,17 @@ inline void print_mem_before(size_t free_heap, size_t min_heap) {
 inline void print_mem_after(size_t free_heap, int64_t delta, size_t min_heap) {
 #if defined(ESP_IDF_VERSION)
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    emit(Serial, "PTR:MEM:AFTER free=%zu delta=%+lld min=%zu largest=%zu",
+    emit(Serial, "ETST:MEM:AFTER free=%zu delta=%+lld min=%zu largest=%zu",
          free_heap, (long long)delta, min_heap, largest);
 #else
-    emit(Serial, "PTR:MEM:AFTER free=%zu delta=%+lld min=%zu",
+    emit(Serial, "ETST:MEM:AFTER free=%zu delta=%+lld min=%zu",
          free_heap, (long long)delta, min_heap);
 #endif
 }
 
 /// Print a memory leak warning.
 inline void print_mem_warning(int64_t leaked_bytes) {
-    emit(Serial, "PTR:MEM:WARN leaked=%lld", (long long)leaked_bytes);
+    emit(Serial, "ETST:MEM:WARN leaked=%lld", (long long)leaked_bytes);
 }
 
 // =====================================================================
@@ -156,12 +156,12 @@ inline void print_mem_warning(int64_t leaked_bytes) {
 
 /// Print a test start marker (parsed by TestTimingTracker receiver).
 inline void print_test_start(const char* suite, const char* name) {
-    emit(Serial, "PTR:TEST:START suite=\"%s\" name=\"%s\"", suite, name);
+    emit(Serial, "ETST:TEST:START suite=\"%s\" name=\"%s\"", suite, name);
 }
 
 /// Print a test start marker with timeout annotation.
 inline void print_test_start(const char* suite, const char* name, float timeout_s) {
-    emit(Serial, "PTR:TEST:START suite=\"%s\" name=\"%s\" timeout=%.0f",
+    emit(Serial, "ETST:TEST:START suite=\"%s\" name=\"%s\" timeout=%.0f",
          suite, name, timeout_s);
 }
 

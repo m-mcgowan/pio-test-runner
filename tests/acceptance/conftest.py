@@ -26,7 +26,7 @@ def ensure_device_awake(port):
 
     After PTR_POST_TEST=restart, the USB-CDC port drops briefly during
     reboot. Wait for it to become openable. Don't read serial data —
-    leave PTR:READY for send_command() to consume.
+    leave ETST:READY for send_command() to consume.
     """
     from helpers import open_device
 

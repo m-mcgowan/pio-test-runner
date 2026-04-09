@@ -7,8 +7,8 @@ respond to disconnect windows.
 
 Wire format (firmware → host)::
 
-    PTR:DISCONNECT ms=<duration_ms> *XX
-    PTR:RECONNECT *XX
+    ETST:DISCONNECT ms=<duration_ms> *XX
+    ETST:RECONNECT *XX
 """
 
 import logging
@@ -52,7 +52,7 @@ class DisconnectHandler:
     def feed(self, message: bytes | str) -> None:
         """Feed a message from the device.
 
-        Protocol messages (``PTR:DISCONNECT``, ``PTR:RECONNECT``)
+        Protocol messages (``ETST:DISCONNECT``, ``ETST:RECONNECT``)
         are consumed. All other messages are ignored.
 
         Args:

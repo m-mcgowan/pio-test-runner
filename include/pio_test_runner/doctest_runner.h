@@ -4,8 +4,8 @@
  *        pio-test-runner protocol integration.
  *
  * Provides:
- *   - PtrTestListener: doctest reporter that emits PTR:TEST:START
- *     and PTR:MEM:* markers (parsed by the Python host)
+ *   - PtrTestListener: doctest reporter that emits ETST:TEST:START
+ *     and ETST:MEM:* markers (parsed by the Python host)
  *   - READY/RUN/DONE protocol handshake with the host
  *   - Compile-time filter support via TEST_FILTER_* macros
  *   - Runtime filter override from the host runner
@@ -69,8 +69,8 @@ namespace pio_test_runner { inline bool _ptr_is_wake_cycle = false; }
  * @brief Doctest reporter that prints test names and memory stats.
  *
  * Emits markers consumed by the pio-test-runner Python host:
- *   - ``PTR:TEST:START suite=... name=...`` — test timing (TestTimingTracker)
- *   - ``PTR:MEM:BEFORE/AFTER`` — heap tracking (MemoryTracker)
+ *   - ``ETST:TEST:START suite=... name=...`` — test timing (TestTimingTracker)
+ *   - ``ETST:MEM:BEFORE/AFTER`` — heap tracking (MemoryTracker)
  */
 struct PtrTestListener : doctest::IReporter {
     size_t free_before_{0};
@@ -164,7 +164,7 @@ struct Config {
     /// Use for runtime-derived excludes (e.g. firmware version gating).
     void (*configure_context)(doctest::Context& ctx) = nullptr;
 
-    /// Called after each test cycle completes (after PTR:DONE).
+    /// Called after each test cycle completes (after ETST:DONE).
     /// Use for coverage dumps, cleanup, etc.
     void (*after_cycle)() = nullptr;
 
@@ -245,7 +245,7 @@ inline std::vector<const char*> get_test_names() {
  */
 inline void list_tests() {
     auto names = get_test_names();
-    Serial.printf("PTR:LIST count=%u\n", (unsigned)names.size());
+    Serial.printf("ETST:LIST count=%u\n", (unsigned)names.size());
     for (size_t i = 0; i < names.size(); ++i) {
         Serial.printf("  [%u] %s\n", (unsigned)i, names[i]);
     }
@@ -641,7 +641,7 @@ inline RunCommand apply_runner_command(doctest::Context& ctx, const String& comm
 /**
  * @brief Wait for a host command via the READY/RUN protocol.
  *
- * Sends PTR:READY periodically until the host responds with a CRC-valid
+ * Sends ETST:READY periodically until the host responds with a CRC-valid
  * command or the timeout expires. Returns the command (CRC stripped),
  * or empty string on timeout. Discards any input that fails CRC
  * validation (e.g. garbage from macOS DTR assertion on serial open).
@@ -695,7 +695,7 @@ inline String wait_for_command(uint32_t timeout_ms) {
  * @brief Execute one test cycle: apply command, run tests, signal done.
  *
  * Creates a fresh doctest::Context, applies compile-time and runtime
- * filters, executes matching tests, and signals PTR:DONE.
+ * filters, executes matching tests, and signals ETST:DONE.
  */
 inline void run_cycle(const String& command) {
     doctest::Context context;
@@ -785,7 +785,7 @@ inline void idle_loop() {
     // Block forever waiting for host commands.
     // This prevents the device from draining battery or re-running
     // tests if USB causes a reset while no host is connected.
-    // wait_for_command sends PTR:READY periodically so the runner
+    // wait_for_command sends ETST:READY periodically so the runner
     // knows the device is accepting commands.
     while (true) {
         String command = wait_for_command(0);  // 0 = wait forever

@@ -171,7 +171,7 @@ TEST_CASE("survives deep sleep" * doctest::timeout(30)) {
 ```
 
 **Key APIs:**
-- `pio_test_runner::signal_sleep(ms)` — emit `PTR:SLEEP ms=N` so the runner knows to wait and reconnect
+- `pio_test_runner::signal_sleep(ms)` — emit `ETST:SLEEP ms=N` so the runner knows to wait and reconnect
 - `pio_test_runner::is_test_wake()` — returns true if this boot is a wake from `signal_sleep()` (uses RTC memory)
 - Always use `doctest::timeout(N)` on sleep tests to prevent hangs
 

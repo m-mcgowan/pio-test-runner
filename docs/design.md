@@ -29,18 +29,18 @@ Host (Python)                          Device (C++ firmware)
 ─────────────                          ────────────────────
 EmbeddedTestRunner                     doctest_runner.h
   ├─ ReadyRunProtocol                    ├─ wait_for_command()
-  │    state machine:                    │    sends PTR:READY
+  │    state machine:                    │    sends ETST:READY
   │    READY→RUN→DONE                    │    receives RUN:/RUN_ALL
   ├─ CrashDetector                       ├─ run_cycle()
   │    backtrace, WDT, panic             │    apply filters
   ├─ MemoryTracker                       │    modify_skip (unskip/skip)
-  │    PTR:MEM:BEFORE/AFTER              │    context.run()
+  │    ETST:MEM:BEFORE/AFTER              │    context.run()
   ├─ TimingTracker                       │    signal_done()
-  │    PTR:TEST:START                    ├─ idle_loop()
+  │    ETST:TEST:START                    ├─ idle_loop()
   ├─ RobustDoctestParser                 │    SLEEP/RESTART/re-run
   │    doctest output → results          └─ test_runner.h
-  └─ DisconnectHandler                       PTR: protocol emit helpers
-       PTR:DISCONNECT/RECONNECT
+  └─ DisconnectHandler                       ETST: protocol emit helpers
+       ETST:DISCONNECT/RECONNECT
 ```
 
 ### How it works with PlatformIO
@@ -73,26 +73,26 @@ connection (or the runner opens it directly for the custom framework).
 
 ### PTR Protocol (`protocol.h`, `protocol.py`)
 
-All protocol messages use the `PTR:` prefix with CRC-8 checksums.
+All protocol messages use the `ETST:` prefix with CRC-8 checksums.
 The firmware emits via `pio_test_runner::emit()`, the host validates
 via `validate_crc()`.
 
 | Message | Direction | Purpose |
 |---------|-----------|---------|
-| `PTR:READY` | Device→Host | Device ready for commands |
+| `ETST:READY` | Device→Host | Device ready for commands |
 | `RUN_ALL` | Host→Device | Run all tests |
 | `RUN: <flags>` | Host→Device | Run with filters |
 | `RESUME_AFTER: <name>` | Host→Device | Skip tests up to name |
-| `PTR:TESTS total=N skip=N run=N` | Device→Host | Test count before execution |
-| `PTR:TEST:START suite=".." name=".."` | Device→Host | Test timing marker |
-| `PTR:MEM:BEFORE free=N min=N largest=N` | Device→Host | Heap before test |
-| `PTR:MEM:AFTER free=N delta=N min=N largest=N` | Device→Host | Heap after test |
-| `PTR:DONE` | Device→Host | All tests complete |
-| `PTR:SLEEP ms=N` | Device→Host | Entering deep sleep |
-| `PTR:RESTART` | Device→Host | Software restart imminent |
-| `PTR:BUSY ms=N` | Device→Host | Busy, extend hang timeout |
-| `PTR:DISCONNECT ms=N` | Device→Host | Serial going away |
-| `PTR:RECONNECT` | Device→Host | Serial restored |
+| `ETST:TESTS total=N skip=N run=N` | Device→Host | Test count before execution |
+| `ETST:TEST:START suite=".." name=".."` | Device→Host | Test timing marker |
+| `ETST:MEM:BEFORE free=N min=N largest=N` | Device→Host | Heap before test |
+| `ETST:MEM:AFTER free=N delta=N min=N largest=N` | Device→Host | Heap after test |
+| `ETST:DONE` | Device→Host | All tests complete |
+| `ETST:SLEEP ms=N` | Device→Host | Entering deep sleep |
+| `ETST:RESTART` | Device→Host | Software restart imminent |
+| `ETST:BUSY ms=N` | Device→Host | Busy, extend hang timeout |
+| `ETST:DISCONNECT ms=N` | Device→Host | Serial going away |
+| `ETST:RECONNECT` | Device→Host | Serial restored |
 | `SLEEP` | Host→Device | Enter deep sleep (idle) |
 | `RESTART` | Host→Device | Restart device (idle) |
 | `LIST` | Host→Device | List registered tests |
@@ -101,10 +101,10 @@ via `validate_crc()`.
 
 State machine for the READY/RUN/DONE handshake:
 
-1. Device boots, sends `PTR:READY` periodically
+1. Device boots, sends `ETST:READY` periodically
 2. Host sends `RUN_ALL`, `RUN: <filters>`, or `RESUME_AFTER: <name>`
-3. Device runs tests, may emit `PTR:SLEEP` for deep sleep
-4. Device sends `PTR:DONE` when finished
+3. Device runs tests, may emit `ETST:SLEEP` for deep sleep
+4. Device sends `ETST:DONE` when finished
 
 The state machine handles:
 - CRC validation on host→device commands

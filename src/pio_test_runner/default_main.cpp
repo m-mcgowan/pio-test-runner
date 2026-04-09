@@ -39,7 +39,7 @@ __attribute__((weak)) void ptr_configure_context(doctest::Context& ctx) {
     (void)ctx;
 }
 
-/// Called after each test cycle completes (after PTR:DONE).
+/// Called after each test cycle completes (after ETST:DONE).
 /// Use for coverage dumps, cleanup, resource deinitialization.
 __attribute__((weak)) void ptr_after_cycle() {
 }

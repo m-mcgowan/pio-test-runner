@@ -2,7 +2,7 @@
  * @file test_memory_tracking.cpp
  * @brief Tests that exercise the [MEM] marker pipeline.
  *
- * PtrTestListener (from doctest_runner.h) emits PTR:MEM:BEFORE/AFTER
+ * PtrTestListener (from doctest_runner.h) emits ETST:MEM:BEFORE/AFTER
  * markers around each test. The Python MemoryTracker parses these and
  * reports leaks in the summary.
  *
@@ -23,8 +23,8 @@ TEST_CASE("clean allocation has near-zero delta") {
 
 TEST_CASE("deliberate leak is detected by runner") {
     // Leak ~8KB — PtrTestListener will emit:
-    //   PTR:MEM:AFTER free=X delta=-8192 min=Y *XX
-    //   PTR:MEM:WARN leaked=8192 *XX
+    //   ETST:MEM:AFTER free=X delta=-8192 min=Y *XX
+    //   ETST:MEM:WARN leaked=8192 *XX
     // The Python MemoryTracker should report this in the summary.
     void* leaked = malloc(8192);
     CHECK(leaked != nullptr);

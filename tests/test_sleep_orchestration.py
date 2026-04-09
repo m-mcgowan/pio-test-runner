@@ -4,9 +4,9 @@ These tests exercise stage_testing() -> _run_test_cycle() ->
 _handle_sleep_resume() with mocked serial I/O. They prove the runner
 correctly orchestrates the multi-phase sleep cycle:
 
-  Phase 1: RUN_ALL -> tests run -> PTR:SLEEP (device sleeps)
-  Phase 2: RUN: --tc "sleeping_test" -> sleeping test Phase 2 -> PTR:DONE
-  Phase 3: RESUME_AFTER: sleeping_test -> remaining tests -> PTR:DONE
+  Phase 1: RUN_ALL -> tests run -> ETST:SLEEP (device sleeps)
+  Phase 2: RUN: --tc "sleeping_test" -> sleeping test Phase 2 -> ETST:DONE
+  Phase 3: RESUME_AFTER: sleeping_test -> remaining tests -> ETST:DONE
 
 After Phase 2, the runner sends RESUME_AFTER directly through the
 device's idle_loop — no restart needed. The host stays in control.
@@ -152,28 +152,28 @@ def make_orchestrated_runner(mock_serial):
 
 
 class TestSingleSleepCycle:
-    """Phase 1 -> PTR:SLEEP -> reconnect -> Phase 2 -> RESUME_AFTER -> PTR:DONE.
+    """Phase 1 -> ETST:SLEEP -> reconnect -> Phase 2 -> RESUME_AFTER -> ETST:DONE.
 
     Protocol exchange:
 
       Phase 1 (first boot):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN_ALL
-        Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
-        Device: PTR:SLEEP ms=3000
+        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:SLEEP ms=3000
         Runner: (closes serial, no post-test command)
 
       Phase 2 (after wake):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN: --tc "sleep test"
-        Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:DONE
         Runner: (closes serial, no post-test command — intermediate cycle)
 
       Phase 3 (remaining tests via RESUME_AFTER, no restart needed):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RESUME_AFTER: sleep test
-        Device: PTR:DONE  (no remaining tests)
+        Device: ETST:DONE  (no remaining tests)
     """
 
     def test_single_sleep_cycle(self):
@@ -181,22 +181,22 @@ class TestSingleSleepCycle:
 
         # Phase 1: boot -> run -> sleep
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: wake -> resume sleeping test -> done
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:DONE"),
         ])
 
         # Phase 3: RESUME_AFTER directly (no restart) -> no remaining -> done
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -244,24 +244,24 @@ class TestSleepWithResumeAfter:
     Protocol exchange:
 
       Phase 1 (first boot):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN_ALL
-        Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
-        Device: PTR:SLEEP ms=3000
+        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:SLEEP ms=3000
         Runner: (closes serial)
 
       Phase 2 (after wake):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN: --tc "sleep test"
-        Device: PTR:TEST:START suite="DeepSleep" name="sleep test"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="DeepSleep" name="sleep test"
+        Device: ETST:DONE
         Runner: (closes serial, intermediate cycle)
 
       Phase 3 (RESUME_AFTER directly, no restart):
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RESUME_AFTER: sleep test
-        Device: PTR:TEST:START suite="Other" name="normal test"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="Other" name="normal test"
+        Device: ETST:DONE
     """
 
     def test_sleep_then_resume_remaining(self):
@@ -269,23 +269,23 @@ class TestSleepWithResumeAfter:
 
         # Phase 1: boot -> run -> sleep
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: wake -> resume sleeping test -> done
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:DONE"),
         ])
 
         # Phase 3: RESUME_AFTER directly -> remaining tests -> done
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Other" name="normal test"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Other" name="normal test"'),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -335,34 +335,34 @@ class TestTwoConsecutiveSleepTests:
     Protocol exchange:
 
       Phase 1: RUN_ALL -> test_a sleeps
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN_ALL
-        Device: PTR:TEST:START suite="Sleep" name="test_a"
-        Device: PTR:SLEEP ms=2000
+        Device: ETST:TEST:START suite="Sleep" name="test_a"
+        Device: ETST:SLEEP ms=2000
 
       Phase 2: wake -> test_a Phase 2 completes
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN: --tc "test_a"
-        Device: PTR:TEST:START suite="Sleep" name="test_a"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="Sleep" name="test_a"
+        Device: ETST:DONE
 
       RESUME_AFTER test_a -> test_b sleeps (no restart)
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RESUME_AFTER: test_a
-        Device: PTR:TEST:START suite="Sleep" name="test_b"
-        Device: PTR:SLEEP ms=3000
+        Device: ETST:TEST:START suite="Sleep" name="test_b"
+        Device: ETST:SLEEP ms=3000
 
       Phase 4: wake -> test_b Phase 2 completes
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RUN: --tc "test_b"
-        Device: PTR:TEST:START suite="Sleep" name="test_b"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="Sleep" name="test_b"
+        Device: ETST:DONE
 
       RESUME_AFTER test_b -> test_c runs normally (no restart)
-        Device: PTR:READY
+        Device: ETST:READY
         Runner: RESUME_AFTER: test_b
-        Device: PTR:TEST:START suite="Other" name="test_c"
-        Device: PTR:DONE
+        Device: ETST:TEST:START suite="Other" name="test_c"
+        Device: ETST:DONE
     """
 
     def test_two_sleep_tests_then_normal(self):
@@ -370,37 +370,37 @@ class TestTwoConsecutiveSleepTests:
 
         # Phase 1: boot -> RUN_ALL -> test_a sleeps
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="test_a"'),
-            _crc("PTR:SLEEP ms=2000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="test_a"'),
+            _crc("ETST:SLEEP ms=2000"),
         ])
 
         # Phase 2: wake -> RUN: --tc "test_a" -> test_a Phase 2 completes
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="test_a"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="test_a"'),
+            _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER test_a -> test_b starts and sleeps (no restart)
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="test_b"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="test_b"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 4: wake -> RUN: --tc "test_b" -> test_b Phase 2 completes
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="test_b"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="test_b"'),
+            _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER test_b -> test_c runs normally -> done (no restart)
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Other" name="test_c"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Other" name="test_c"'),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -461,26 +461,26 @@ class TestFailurePropagationAcrossSleepCycles:
 
         # Phase 1: sleep test
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: sleep test Phase 2 passes
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
             "  CHECK( cause == ESP_SLEEP_WAKEUP_TIMER ) is correct!",
-            _crc("PTR:DONE"),
+            _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER: remaining test FAILS
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sensor" name="calibration check"'),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sensor" name="calibration check"'),
             "test/test_sensor.cpp:55: ERROR: CHECK( offset < 10 ) is NOT correct!",
             "  values: CHECK( 42 < 10 )",
-            _crc("PTR:DONE"),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -525,25 +525,25 @@ class TestFailurePropagationAcrossSleepCycles:
 
         # Phase 1: sleep test
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         # Phase 2: sleep test passes
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="DeepSleep" name="sleep test"'),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="DeepSleep" name="sleep test"'),
             "  CHECK( cause == ESP_SLEEP_WAKEUP_TIMER ) is correct!",
-            _crc("PTR:DONE"),
+            _crc("ETST:DONE"),
         ])
 
         # RESUME_AFTER: remaining test passes
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sensor" name="calibration"'),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sensor" name="calibration"'),
             "  CHECK( offset < 10 ) is correct!",
-            _crc("PTR:DONE"),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -605,22 +605,22 @@ class TestPhase2CommandFormat:
 
         # Phase 1: test with spaces in name triggers sleep
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
-            _crc("PTR:SLEEP ms=0"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc("ETST:SLEEP ms=0"),
         ])
 
         # Phase 2: wake -> resume
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="BHI385" name="Probe after restart with full IMU lifecycle"'),
+            _crc("ETST:DONE"),
         ])
 
         # Phase 3: RESUME_AFTER -> done
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)
@@ -671,20 +671,20 @@ class TestPhase2CommandFormat:
         mock_ser = MockSerial()
 
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="sleep test"'),
-            _crc("PTR:SLEEP ms=3000"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="sleep test"'),
+            _crc("ETST:SLEEP ms=3000"),
         ])
 
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc('PTR:TEST:START suite="Sleep" name="sleep test"'),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc('ETST:TEST:START suite="Sleep" name="sleep test"'),
+            _crc("ETST:DONE"),
         ])
 
         mock_ser.add_phase([
-            _crc("PTR:READY"),
-            _crc("PTR:DONE"),
+            _crc("ETST:READY"),
+            _crc("ETST:DONE"),
         ])
 
         runner = make_orchestrated_runner(mock_ser)

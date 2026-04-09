@@ -2,7 +2,7 @@
 
 ## Motivation
 
-The current `PTR:` protocol prefix reads as "pointer" and ties the protocol
+The current `ETST:` protocol prefix reads as "pointer" and ties the protocol
 to PlatformIO. The protocol is generic enough to work with any host runner.
 Additionally, post-test behavior is hardcoded — the runner sends `SLEEP` and
 the firmware either sleeps or loops. Real devices need configurable cleanup
@@ -10,18 +10,18 @@ and post-test actions.
 
 ## Protocol prefix rename
 
-Rename `PTR:` to `TEST:` throughout:
+Rename `ETST:` to `TEST:` throughout:
 
 | Current | Proposed |
 |---------|----------|
-| `PTR:READY` | `TEST:READY` |
-| `PTR:DONE` | `TEST:DONE` |
-| `PTR:SLEEP` | `TEST:SLEEP` |
-| `PTR:TEST:START` | `TEST:START` |
-| `PTR:MEM:BEFORE` | `TEST:MEM:BEFORE` |
-| `PTR:MEM:AFTER` | `TEST:MEM:AFTER` |
-| `PTR:DISCONNECT` | `TEST:DISCONNECT` |
-| `PTR:RECONNECT` | `TEST:RECONNECT` |
+| `ETST:READY` | `TEST:READY` |
+| `ETST:DONE` | `TEST:DONE` |
+| `ETST:SLEEP` | `TEST:SLEEP` |
+| `ETST:TEST:START` | `TEST:START` |
+| `ETST:MEM:BEFORE` | `TEST:MEM:BEFORE` |
+| `ETST:MEM:AFTER` | `TEST:MEM:AFTER` |
+| `ETST:DISCONNECT` | `TEST:DISCONNECT` |
+| `ETST:RECONNECT` | `TEST:RECONNECT` |
 
 Accept both prefixes during a transition period for backward compatibility.
 
@@ -156,8 +156,8 @@ Commands that interrupt the serial stream (SLEEP, RESTART, LIGHTSLEEP)
 are currently fire-and-forget. The device sends the signal and immediately
 acts, without knowing if the host received it. This causes:
 
-- Host misses PTR:SLEEP → never reconnects after wake
-- Host misses PTR:DONE before SLEEP → reports test as failed
+- Host misses ETST:SLEEP → never reconnects after wake
+- Host misses ETST:DONE before SLEEP → reports test as failed
 - Acceptance tests can't safely send RUN_ALL when sleep tests are present
 
 ### Design
@@ -195,7 +195,7 @@ This applies to:
 bool wait_for_ack(uint32_t timeout_ms = 2000);
 
 void signal_sleep(uint32_t ms) {
-    emit(Serial, "PTR:SLEEP ms=%lu", (unsigned long)ms);
+    emit(Serial, "ETST:SLEEP ms=%lu", (unsigned long)ms);
     wait_for_ack();  // blocks until ACK or timeout
 }
 ```
@@ -212,12 +212,12 @@ def _on_sleep(self, duration_ms):
 
 ## Migration
 
-1. Add `TEST:` prefix support alongside `PTR:` (both accepted)
+1. Add `TEST:` prefix support alongside `ETST:` (both accepted)
 2. Add handshake for disruptive commands (ACK protocol)
 3. Add `TEST_AFTER_ACTION` callback
 4. Add idle mode declaration and override
-5. Deprecate `PTR:` prefix (warn in logs)
-6. Remove `PTR:` support in a future major version
+5. Deprecate `ETST:` prefix (warn in logs)
+6. Remove `ETST:` support in a future major version
 
 ## Files to modify
 

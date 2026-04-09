@@ -23,18 +23,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 - **`PTR_CONFIGURE_CONTEXT` hook** — define as a function
   `void fn(doctest::Context&)` to configure the context before test execution
   (e.g., set custom options, add filters).
-- **`PTR:BUSY` protocol message** — firmware signals it will be busy for
+- **`ETST:BUSY` protocol message** — firmware signals it will be busy for
   a specified duration; host extends hang timeout accordingly.
-- **`PTR:RESTART` protocol message** — firmware signals an imminent software
+- **`ETST:RESTART` protocol message** — firmware signals an imminent software
   restart; host handles reconnection like a sleep cycle.
-- **Per-test timeout annotation** — `PTR:TEST:START` now includes
+- **Per-test timeout annotation** — `ETST:TEST:START` now includes
   `timeout=N` from `doctest::timeout(N)` decorators for host-side
   enforcement.
-- **Test count reporting** — `PTR:TESTS total=N skip=N run=N` emitted
+- **Test count reporting** — `ETST:TESTS total=N skip=N run=N` emitted
   before test execution begins.
 - **SLEEP command** — host sends SLEEP after test completion to prevent
   battery drain on idle devices.
-- **Largest contiguous block** — `PTR:MEM:BEFORE/AFTER` markers now include
+- **Largest contiguous block** — `ETST:MEM:BEFORE/AFTER` markers now include
   `largest=N` (largest free heap block) on ESP-IDF builds.
 - **`PTR_AFTER_CYCLE` hook** — called after each test cycle completes.
 

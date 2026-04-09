@@ -1,4 +1,4 @@
-"""Tests for the shared PTR: protocol parser."""
+"""Tests for the shared ETST: protocol parser."""
 
 from pio_test_runner.protocol import (
     ParsedTag,
@@ -15,19 +15,19 @@ class TestCRC8:
 
     def test_known_value(self):
         # Verify CRC is deterministic and non-trivial
-        crc = compute_crc8("PTR:READY")
+        crc = compute_crc8("ETST:READY")
         assert isinstance(crc, int)
         assert 0 <= crc <= 255
-        assert crc == compute_crc8("PTR:READY")  # deterministic
+        assert crc == compute_crc8("ETST:READY")  # deterministic
 
     def test_different_input_different_crc(self):
-        assert compute_crc8("PTR:READY") != compute_crc8("PTR:DONE")
+        assert compute_crc8("ETST:READY") != compute_crc8("ETST:DONE")
 
     def test_format_crc(self):
-        line = format_crc("PTR:READY")
+        line = format_crc("ETST:READY")
         # Should end with " *XX" where XX is hex
-        assert line.startswith("PTR:READY *")
-        assert len(line) == len("PTR:READY *XX")
+        assert line.startswith("ETST:READY *")
+        assert len(line) == len("ETST:READY *XX")
         # Parse it back and verify CRC
         parsed = parse_line(line)
         assert parsed is not None
@@ -36,7 +36,7 @@ class TestCRC8:
 
 class TestParseLine:
     def test_simple_tag_with_crc(self):
-        line = format_crc("PTR:READY")
+        line = format_crc("ETST:READY")
         parsed = parse_line(line)
         assert parsed is not None
         assert parsed.tag == "READY"
@@ -44,7 +44,7 @@ class TestParseLine:
         assert parsed.crc_valid is True
 
     def test_tag_with_subtag(self):
-        line = format_crc("PTR:MEM:BEFORE free=200000 min=180000")
+        line = format_crc("ETST:MEM:BEFORE free=200000 min=180000")
         parsed = parse_line(line)
         assert parsed is not None
         assert parsed.tag == "MEM:BEFORE"
@@ -52,7 +52,7 @@ class TestParseLine:
         assert parsed.crc_valid is True
 
     def test_tag_with_payload(self):
-        line = format_crc("PTR:SLEEP ms=3000")
+        line = format_crc("ETST:SLEEP ms=3000")
         parsed = parse_line(line)
         assert parsed is not None
         assert parsed.tag == "SLEEP"
@@ -60,7 +60,7 @@ class TestParseLine:
         assert parsed.crc_valid is True
 
     def test_tag_with_quoted_payload(self):
-        line = format_crc('PTR:TEST:START suite="My Suite" name="test one"')
+        line = format_crc('ETST:TEST:START suite="My Suite" name="test one"')
         parsed = parse_line(line)
         assert parsed is not None
         assert parsed.tag == "TEST:START"
@@ -69,7 +69,7 @@ class TestParseLine:
 
     def test_invalid_crc_rejected(self):
         # Valid format but wrong CRC
-        line = format_crc("PTR:READY")
+        line = format_crc("ETST:READY")
         # Corrupt the CRC
         corrupted = line[:-2] + "00"
         parsed = parse_line(corrupted)
@@ -78,13 +78,13 @@ class TestParseLine:
         assert parsed.crc_valid is False
 
     def test_no_crc_accepted(self):
-        parsed = parse_line("PTR:READY")
+        parsed = parse_line("ETST:READY")
         assert parsed is not None
         assert parsed.tag == "READY"
         assert parsed.crc_valid is None
 
     def test_no_crc_with_payload(self):
-        parsed = parse_line("PTR:SLEEP ms=3000")
+        parsed = parse_line("ETST:SLEEP ms=3000")
         assert parsed is not None
         assert parsed.tag == "SLEEP"
         assert parsed.payload_str == "ms=3000"
@@ -98,8 +98,8 @@ class TestParseLine:
         assert parse_line("") is None
 
     def test_garbled_line(self):
-        # Interleaved output that starts with PTR: but is garbled
-        line = format_crc("PTR:READY")
+        # Interleaved output that starts with ETST: but is garbled
+        line = format_crc("ETST:READY")
         # Insert garbage in the middle
         garbled = line[:6] + "GARBAGE" + line[6:]
         parsed = parse_line(garbled)
@@ -108,7 +108,7 @@ class TestParseLine:
             assert parsed.crc_valid is False
 
     def test_whitespace_stripped(self):
-        line = format_crc("PTR:READY")
+        line = format_crc("ETST:READY")
         parsed = parse_line(f"  {line}  ")
         assert parsed is not None
         assert parsed.tag == "READY"
@@ -117,16 +117,16 @@ class TestParseLine:
     def test_all_tags(self):
         """Verify all protocol tags parse correctly."""
         tags = [
-            "PTR:READY",
-            "PTR:DONE",
-            "PTR:SLEEP ms=3000",
-            "PTR:DISCONNECT ms=5000",
-            "PTR:RECONNECT",
-            "PTR:MEM:BEFORE free=200000 min=180000",
-            "PTR:MEM:AFTER free=199800 delta=-200 min=179800",
-            "PTR:MEM:WARN leaked=8452",
-            'PTR:TEST:START suite="Protocol" name="basic arithmetic"',
-            'PTR:TEST:START suite="Timing" name="slow test" timeout=30',
+            "ETST:READY",
+            "ETST:DONE",
+            "ETST:SLEEP ms=3000",
+            "ETST:DISCONNECT ms=5000",
+            "ETST:RECONNECT",
+            "ETST:MEM:BEFORE free=200000 min=180000",
+            "ETST:MEM:AFTER free=199800 delta=-200 min=179800",
+            "ETST:MEM:WARN leaked=8452",
+            'ETST:TEST:START suite="Protocol" name="basic arithmetic"',
+            'ETST:TEST:START suite="Timing" name="slow test" timeout=30',
         ]
         for content in tags:
             line = format_crc(content)
@@ -135,7 +135,7 @@ class TestParseLine:
             assert parsed.crc_valid is True, f"CRC failed for: {line}"
 
     def test_raw_preserved(self):
-        line = format_crc("PTR:READY")
+        line = format_crc("ETST:READY")
         parsed = parse_line(line)
         assert parsed.raw == line
 
@@ -181,9 +181,9 @@ class TestCRC8CrossValidation:
         # Record known CRCs for regression testing.
         # If the algorithm changes, these would break.
         cases = {
-            "PTR:READY": compute_crc8("PTR:READY"),
-            "PTR:DONE": compute_crc8("PTR:DONE"),
-            "PTR:SLEEP ms=3000": compute_crc8("PTR:SLEEP ms=3000"),
+            "ETST:READY": compute_crc8("ETST:READY"),
+            "ETST:DONE": compute_crc8("ETST:DONE"),
+            "ETST:SLEEP ms=3000": compute_crc8("ETST:SLEEP ms=3000"),
         }
         # Verify they're all different
         crcs = list(cases.values())
@@ -191,7 +191,7 @@ class TestCRC8CrossValidation:
 
     def test_round_trip(self):
         """format_crc → parse_line → crc_valid."""
-        content = "PTR:MEM:AFTER free=199800 delta=-200 min=179800"
+        content = "ETST:MEM:AFTER free=199800 delta=-200 min=179800"
         line = format_crc(content)
         parsed = parse_line(line)
         assert parsed is not None

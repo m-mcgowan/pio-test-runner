@@ -3,10 +3,10 @@
 Parses protocol sentinels from device serial output. The protocol
 supports test filtering and deep sleep orchestration:
 
-1. Device boots, prints ``PTR:READY``
+1. Device boots, prints ``ETST:READY``
 2. Host sends ``RUN_ALL``, ``RUN: <filter>``, or ``RESUME_AFTER: <name>``
-3. Device runs tests, may print ``PTR:SLEEP ms=<N>`` for deep sleep
-4. Device prints ``PTR:DONE`` when finished
+3. Device runs tests, may print ``ETST:SLEEP ms=<N>`` for deep sleep
+4. Device prints ``ETST:DONE`` when finished
 
 The handler is a pure receiver — it parses state but does not send.
 The test runner reads its state to decide when to send commands.
@@ -32,14 +32,14 @@ class ProtocolState(enum.Enum):
 
 
 class ReadyRunProtocol:
-    """Parses PTR:READY/DONE/SLEEP/TEST:START protocol from device output.
+    """Parses ETST:READY/DONE/SLEEP/TEST:START protocol from device output.
 
     State transitions::
 
-        WAITING_FOR_READY → READY (on "PTR:READY" line)
+        WAITING_FOR_READY → READY (on "ETST:READY" line)
         READY → RUNNING (on ``command_sent()`` call)
-        RUNNING → SLEEPING (on "PTR:SLEEP" line)
-        RUNNING → FINISHED (on "PTR:DONE" line)
+        RUNNING → SLEEPING (on "ETST:SLEEP" line)
+        RUNNING → FINISHED (on "ETST:DONE" line)
         SLEEPING → WAITING_FOR_READY (on ``reset_for_wake()``)
     """
 
@@ -179,12 +179,12 @@ class ReadyRunProtocol:
 
     @property
     def current_test_suite(self) -> str:
-        """Current test suite name from PTR:TEST:START markers."""
+        """Current test suite name from ETST:TEST:START markers."""
         return self._current_test_suite
 
     @property
     def current_test_name(self) -> str:
-        """Current test name from PTR:TEST:START markers."""
+        """Current test name from ETST:TEST:START markers."""
         return self._current_test_name
 
     @property
@@ -201,7 +201,7 @@ class ReadyRunProtocol:
 
     @property
     def is_busy(self) -> bool:
-        """True if device signalled PTR:BUSY and the period hasn't expired."""
+        """True if device signalled ETST:BUSY and the period hasn't expired."""
         return time.monotonic() < self._busy_until
 
     @property

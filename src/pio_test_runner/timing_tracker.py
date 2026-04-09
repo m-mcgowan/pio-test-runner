@@ -1,4 +1,4 @@
-"""Per-test duration tracking from ``PTR:TEST:START`` markers.
+"""Per-test duration tracking from ``ETST:TEST:START`` markers.
 
 Parses test start markers emitted by the test framework's listener
 and tracks wall-clock duration for each test case.
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class TestTimingTracker:
-    """Tracks per-test duration from ``PTR:TEST:START`` markers.
+    """Tracks per-test duration from ``ETST:TEST:START`` markers.
 
-    Each ``PTR:TEST:START suite=... name=...`` line starts a timer for
+    Each ``ETST:TEST:START suite=... name=...`` line starts a timer for
     that test. The timer stops when the next test starts or when
     ``finalize()`` is called.
 

@@ -10,8 +10,8 @@ orchestration framework.
 - **DX stability**: the user-facing API should not change for existing users.
   Refactoring happens behind the current interface. If the DX has rough edges,
   fix those before stabilizing — breaking changes are cheaper now than later.
-- **Protocol is the contract**: the PTR wire protocol (PTR:READY, PTR:DONE,
-  PTR:TEST:START, etc.) is framework-agnostic by design. Any test framework
+- **Protocol is the contract**: the PTR wire protocol (ETST:READY, ETST:DONE,
+  ETST:TEST:START, etc.) is framework-agnostic by design. Any test framework
   that emits these markers gets full orchestration support for free.
 - **Host knows more than firmware**: the host has unlimited memory, network
   access, and persistent storage. Push complexity to the host where possible
@@ -199,8 +199,8 @@ A general-purpose mechanism for firmware ↔ host data transfer during tests.
 ### Protocol Extension
 
 ```
-PTR:DATA tag="cal_offset" size=4 base64=AAAEAA== *XX    # firmware → host
-PTR:DATA tag="cal_offset" size=4 base64=AAAEAA== *XX    # host → firmware (replay)
+ETST:DATA tag="cal_offset" size=4 base64=AAAEAA== *XX    # firmware → host
+ETST:DATA tag="cal_offset" size=4 base64=AAAEAA== *XX    # host → firmware (replay)
 ```
 
 ### Firmware API (Sketch)
@@ -224,7 +224,7 @@ from the protocol stream into the test's variables.
 
 ### Zephyr
 
-Zephyr has its own test framework (`ztest`) with features that overlap with PTR:
+Zephyr has its own test framework (`ztest`) with features that overlap with ETST:
 - Test suites and test cases
 - Setup/teardown hooks
 - Assertion macros
