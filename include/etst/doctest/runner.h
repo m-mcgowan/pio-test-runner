@@ -51,6 +51,7 @@
 #include <doctest.h>
 #include <Arduino.h>
 #include "etst/test_runner.h"
+#include "etst/env.h"
 
 // _etst_is_wake_cycle is declared in test_runner.h, defined here.
 // inline variable (C++17) — safe in header-only library.
@@ -379,6 +380,24 @@ inline void extract_etst_flags(std::vector<String>& args) {
     // Process in argument order so later flags override earlier ones.
     // e.g. --skip-tc *foo* --unskip-tc *foo* → foo ends up unskipped.
     for (size_t i = 0; i < args.size(); ) {
+        // --env KEY=VALUE: store in env var store
+        if (args[i] == "--env" && i + 1 < args.size()) {
+            const char* kv = args[i + 1].c_str();
+            const char* eq = strchr(kv, '=');
+            if (eq && eq != kv) {
+                String key(kv, eq - kv);
+                String value(eq + 1);
+                etst::detail::env_set(key.c_str(), value.c_str());
+            } else {
+                String msg = "malformed --env arg: ";
+                msg += args[i + 1];
+                etst::signal_error("config", msg.c_str());
+                args.clear();
+                return;
+            }
+            args.erase(args.begin() + i, args.begin() + i + 2);
+            continue;
+        }
         // --wake: Phase 2 after deep sleep (no value, just a flag)
         if (args[i] == "--wake") {
             etst::_etst_is_wake_cycle = true;
@@ -647,6 +666,12 @@ inline RunCommand apply_runner_command(::doctest::Context& ctx, const String& co
     }
 }
 
+/// Result of waiting for host commands.
+struct CommandResult {
+    String command;                   // The RUN/RUN_ALL/RESUME_AFTER command
+    std::vector<String> args;         // Accumulated ETST:ARGS payloads
+};
+
 /**
  * @brief Wait for a host command via the READY/RUN protocol.
  *
@@ -654,14 +679,20 @@ inline RunCommand apply_runner_command(::doctest::Context& ctx, const String& co
  * command or the timeout expires. Returns the command (CRC stripped),
  * or empty string on timeout. Discards any input that fails CRC
  * validation (e.g. garbage from macOS DTR assertion on serial open).
+ *
+ * Accumulates ETST:ARGS lines received during the configure phase.
+ * On each READY emission, clears accumulated args and the env store.
  */
-inline String wait_for_command(uint32_t timeout_ms) {
+inline CommandResult wait_for_command(uint32_t timeout_ms) {
     constexpr uint32_t READY_INTERVAL_MS = 1000;
     const bool wait_forever = (timeout_ms == 0);
     uint32_t deadline = millis() + timeout_ms;
     uint32_t next_ready = 0;  // send immediately on first iteration
+    CommandResult cmd_result;
     while (wait_forever || millis() < deadline) {
         if (millis() >= next_ready) {
+            cmd_result.args.clear();
+            etst::detail::env_clear();
             etst::signal_ready();
             next_ready = millis() + READY_INTERVAL_MS;
         }
@@ -689,15 +720,27 @@ inline String wait_for_command(uint32_t timeout_ms) {
 
                 auto result = etst::validate_crc(buf, len);
                 if (result.valid) {
-                    return String(result.content);
+                    String content(result.content);
+                    // ETST:ARGS lines are accumulated, not returned as commands
+                    if (content.startsWith("ETST:ARGS ")) {
+                        String payload = content.substring(10);
+                        payload.trim();
+                        cmd_result.args.push_back(payload);
+                        continue;
+                    }
+                    cmd_result.command = content;
+                    return cmd_result;
                 }
-                // CRC failed — log and discard
+                // CRC failed — log, discard, and force immediate READY re-send
                 etst::log_crc_failure(Serial, raw.c_str(), raw.length());
+                cmd_result.args.clear();
+                etst::detail::env_clear();
+                next_ready = 0;  // force immediate READY re-send
             }
         }
         delay(10);
     }
-    return String();
+    return cmd_result;
 }
 
 /**
@@ -705,8 +748,12 @@ inline String wait_for_command(uint32_t timeout_ms) {
  *
  * Creates a fresh doctest::Context, applies compile-time and runtime
  * filters, executes matching tests, and signals ETST:DONE.
+ *
+ * Accepts a CommandResult which may contain accumulated ETST:ARGS
+ * payloads from the configure phase. These are combined with any
+ * inline args from the RUN command before applying filters.
  */
-inline void run_cycle(const String& command) {
+inline void run_cycle(const CommandResult& cmd_result) {
     ::doctest::Context context;
     context.setOption("success", true);
     context.setOption("no-exitcode", true);
@@ -714,6 +761,28 @@ inline void run_cycle(const String& command) {
     context.applyCommandLine(0, nullptr);
 
     active_filters().clear();
+
+    // Build combined command: accumulated ARGS + RUN body
+    String command = cmd_result.command;
+    if (!cmd_result.args.empty()) {
+        String combined_body;
+        for (const auto& arg : cmd_result.args) {
+            if (combined_body.length() > 0) combined_body += " ";
+            combined_body += arg;
+        }
+        if (command.startsWith("RUN:")) {
+            String inline_args = command.substring(4);
+            inline_args.trim();
+            if (inline_args.length() > 0) {
+                combined_body += " ";
+                combined_body += inline_args;
+            }
+            command = "RUN: " + combined_body;
+        } else if (command == "RUN" || command == "RUN_ALL") {
+            command = "RUN: " + combined_body;
+        }
+    }
+
     auto cmd = apply_runner_command(context, command);
 
     if (config.configure) {
@@ -750,6 +819,13 @@ inline void run_cycle(const String& command) {
     etst::signal_done();
 }
 
+/// @brief Overload for plain String commands (no accumulated ARGS).
+inline void run_cycle(const String& command) {
+    CommandResult cr;
+    cr.command = command;
+    run_cycle(cr);
+}
+
 /**
  * @brief Initialize and run doctest tests.
  *
@@ -771,13 +847,13 @@ inline void run_tests() {
 
     if (etst::config.board_init) {
         if (!etst::config.board_init(Serial)) {
-            Serial.println("FATAL: Board init failed - halting tests");
+            etst::signal_error("hardware", "Board init failed");
             while (true) { delay(1000); }
         }
     }
 
-    String command = wait_for_command(etst::config.ready_timeout_ms);
-    run_cycle(command);
+    auto cmd_result = wait_for_command(etst::config.ready_timeout_ms);
+    run_cycle(cmd_result);
     tests_complete = true;
 }
 
@@ -797,15 +873,15 @@ inline void idle_loop() {
     // wait_for_command sends ETST:READY periodically so the runner
     // knows the device is accepting commands.
     while (true) {
-        String command = wait_for_command(0);  // 0 = wait forever
+        auto cmd_result = wait_for_command(0);  // 0 = wait forever
 
-        if (command.length() == 0) {
+        if (cmd_result.command.length() == 0) {
             // Should not happen with infinite wait, but be safe
             delay(1000);
             continue;
         }
 
-        if (command == "RESTART") {
+        if (cmd_result.command == "RESTART") {
             Serial.println("[ETST] Restarting...");
             Serial.flush();
             delay(100);
@@ -815,7 +891,7 @@ inline void idle_loop() {
 #if defined(ESP_IDF_VERSION)
             else { esp_restart(); }
 #endif
-        } else if (command == "SLEEP") {
+        } else if (cmd_result.command == "SLEEP") {
             Serial.println("[ETST] Entering deep sleep...");
             Serial.flush();
             delay(100);
@@ -825,7 +901,7 @@ inline void idle_loop() {
 #if defined(ESP_IDF_VERSION)
             else { esp_deep_sleep_start(); }
 #endif
-        } else if (command == "LIGHTSLEEP") {
+        } else if (cmd_result.command == "LIGHTSLEEP") {
             Serial.println("[ETST] Entering light sleep...");
             Serial.flush();
             delay(100);
@@ -839,11 +915,11 @@ inline void idle_loop() {
             }
 #endif
             Serial.println("[ETST] Woke from light sleep");
-        } else if (command == "WAIT") {
+        } else if (cmd_result.command == "WAIT") {
             Serial.println("[ETST] Waiting (idle, no sleep)...");
         } else {
             // LIST, RUN:, or other commands
-            run_cycle(command);
+            run_cycle(cmd_result);
         }
     }
 }
