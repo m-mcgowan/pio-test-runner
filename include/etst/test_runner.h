@@ -82,6 +82,22 @@ inline void signal_restart() {
 }
 
 // =====================================================================
+// Error and warning signaling
+// =====================================================================
+
+/// Signal a non-recoverable error. Host fails the test run.
+/// @param code     "config", "hardware", "memory", or "internal"
+/// @param message  Human-readable description
+inline void signal_error(const char* code, const char* message) {
+    etst::signal_error(Serial, code, message);
+}
+
+/// Signal a warning. Informational, firmware continues.
+inline void signal_warn(const char* message) {
+    etst::signal_warn(Serial, message);
+}
+
+// =====================================================================
 // Wake detection
 // =====================================================================
 

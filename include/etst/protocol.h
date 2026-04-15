@@ -171,4 +171,22 @@ inline void log_crc_failure(Print& out, const char* raw, size_t len) {
     out.write(reinterpret_cast<const uint8_t*>("\n"), 1);
 }
 
+// -----------------------------------------------------------------
+// Error and warning signaling
+// -----------------------------------------------------------------
+
+/// Emit a non-recoverable error. The host treats this as a hard
+/// test-run failure and does not retry.
+///
+/// @param code     Error category: "config", "hardware", "memory", "internal"
+/// @param message  Human-readable description
+inline void signal_error(Print& out, const char* code, const char* message) {
+    emit(out, "ETST:ERROR %s \"%s\"", code, message);
+}
+
+/// Emit a warning. Informational — firmware continues.
+inline void signal_warn(Print& out, const char* message) {
+    emit(out, "ETST:WARN %s", message);
+}
+
 }  // namespace etst

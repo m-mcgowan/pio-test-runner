@@ -221,6 +221,21 @@ def msg_mem_warn(leaked: int) -> str:
     return format_crc(f"{PREFIX}MEM:WARN leaked={leaked}")
 
 
+def msg_args(args: str) -> str:
+    """Build ETST:ARGS message (with CRC)."""
+    return format_crc(f"{PREFIX}ARGS {args}")
+
+
+def msg_error(code: str, message: str) -> str:
+    """Build ETST:ERROR message (with CRC)."""
+    return format_crc(f'{PREFIX}ERROR {code} "{message}"')
+
+
+def msg_warn(message: str) -> str:
+    """Build ETST:WARN message (with CRC)."""
+    return format_crc(f"{PREFIX}WARN {message}")
+
+
 # =====================================================================
 # Payload parsing
 # =====================================================================

@@ -4,6 +4,9 @@ from etst.protocol import (
     ParsedTag,
     compute_crc8,
     format_crc,
+    msg_args,
+    msg_error,
+    msg_warn,
     parse_line,
     parse_payload,
 )
@@ -201,3 +204,29 @@ class TestCRC8CrossValidation:
         assert payload["free"] == "199800"
         assert payload["delta"] == "-200"
         assert payload["min"] == "179800"
+
+
+class TestNewProtocolMessages:
+    def test_msg_args(self):
+        result = msg_args("--env DEVICE_REV=1.10")
+        assert "ETST:ARGS --env DEVICE_REV=1.10" in result
+        parsed = parse_line(result)
+        assert parsed is not None
+        assert parsed.tag == "ARGS"
+        assert parsed.crc_valid is True
+
+    def test_msg_error(self):
+        result = msg_error("config", "malformed --env arg: KEY")
+        parsed = parse_line(result)
+        assert parsed is not None
+        assert parsed.tag == "ERROR"
+        assert parsed.crc_valid is True
+        assert "config" in parsed.payload_str
+        assert "malformed --env arg: KEY" in parsed.payload_str
+
+    def test_msg_warn(self):
+        result = msg_warn("something unusual")
+        parsed = parse_line(result)
+        assert parsed is not None
+        assert parsed.tag == "WARN"
+        assert parsed.crc_valid is True
