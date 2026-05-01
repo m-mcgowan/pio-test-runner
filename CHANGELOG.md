@@ -5,6 +5,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+### Added
+- **Receiver plugin API**: packages can declare a receiver class under
+  the `embedded_test_runner.receivers` entry-point group and have it
+  auto-attached to the runner's router. See README "Receiver plugins"
+  for the contract. Enables `pio-gcov` and similar packages to attach
+  per-partition capture receivers without per-project Python.
+- **Partition lifecycle hooks**: `on_partition_start()` /
+  `on_partition_complete()` on `EmbeddedTestRunner`. Default
+  implementations forward to plugin receivers that opt in. Subclasses
+  overriding either hook should call `super()` to preserve plugin
+  notification.
+
 ### Changed
 - **Renamed**: pio-test-runner → embedded-test-runner, pio_test_runner → etst,
   ptr_doctest → etst::doctest. Include path: `<etst/...>`. Clean break — no
