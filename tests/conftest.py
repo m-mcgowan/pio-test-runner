@@ -2,7 +2,8 @@
 
 import enum
 import sys
-from unittest.mock import MagicMock
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 
 class MockTestStatus(enum.Enum):
@@ -129,3 +130,28 @@ def install_pio_mocks():
 
 # Install mocks before any test imports runner.py
 install_pio_mocks()
+
+
+class FakeEntryPoint:
+    """Stand-in for importlib.metadata.EntryPoint with a controllable load()."""
+
+    def __init__(self, name, target):
+        self.name = name
+        self._target = target
+
+    def load(self):
+        return self._target
+
+
+@contextmanager
+def fake_entry_points(group_to_eps):
+    """Patch importlib.metadata.entry_points to return controlled fakes.
+
+    Args:
+        group_to_eps: dict mapping group name -> list of FakeEntryPoint.
+    """
+    def _entry_points(*, group=None):
+        return list(group_to_eps.get(group, []))
+
+    with patch("importlib.metadata.entry_points", side_effect=_entry_points):
+        yield
