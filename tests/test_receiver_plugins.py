@@ -51,3 +51,49 @@ def test_plugin_receives_messages_through_router():
     runner.router.feed("world")
 
     assert plugin.messages == ["hello", "world"]
+
+
+class _CovOnlyReceiver:
+    """Plugin that only wants COV: lines (instance-method predicate)."""
+
+    def __init__(self, runner):
+        self.messages = []
+
+    def predicate(self, message):
+        return isinstance(message, str) and message.startswith("COV:")
+
+    def feed(self, message):
+        self.messages.append(message)
+
+
+class _AttrPredicateReceiver:
+    """Plugin that uses a predicate attribute (callable, not a method)."""
+
+    def __init__(self, runner):
+        self.messages = []
+        self.predicate = lambda m: isinstance(m, str) and "important" in m
+
+    def feed(self, message):
+        self.messages.append(message)
+
+
+def test_predicate_method_filters_messages():
+    runner = make_runner_with_plugins({"covonly": _CovOnlyReceiver})
+    plugin = runner._plugin_receivers[0]
+
+    runner.router.feed("COV:DATA 0x1234")
+    runner.router.feed("plain log line")
+    runner.router.feed("COV:END")
+
+    assert plugin.messages == ["COV:DATA 0x1234", "COV:END"]
+
+
+def test_predicate_attribute_filters_messages():
+    runner = make_runner_with_plugins({"attr": _AttrPredicateReceiver})
+    plugin = runner._plugin_receivers[0]
+
+    runner.router.feed("important event")
+    runner.router.feed("noise")
+    runner.router.feed("more important things")
+
+    assert plugin.messages == ["important event", "more important things"]
