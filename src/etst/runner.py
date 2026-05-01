@@ -262,6 +262,45 @@ class EmbeddedTestRunner(_BaseRunner):
             return float(env_val)
         return 30.0
 
+    # ------------------------------------------------------------------
+    # Partition lifecycle hooks (overridable; default forwards to plugins)
+    # ------------------------------------------------------------------
+
+    def on_partition_start(self):
+        """Called once at the start of a test partition (PIO setup phase).
+
+        Default implementation forwards to plugin receivers that implement
+        ``on_partition_start()``. Subclasses overriding this should call
+        ``super().on_partition_start()`` to preserve plugin notification.
+        """
+        self._notify_plugins("on_partition_start")
+
+    def on_partition_complete(self):
+        """Called once when the partition's test cycle has finished.
+
+        Default implementation forwards to plugin receivers that implement
+        ``on_partition_complete()``. Subclasses overriding this should call
+        ``super().on_partition_complete()`` to preserve plugin notification.
+        """
+        self._notify_plugins("on_partition_complete")
+
+    def _notify_plugins(self, hook_name):
+        """Call ``hook_name()`` on every plugin receiver that defines it.
+
+        Exceptions from one plugin do not prevent others from being called.
+        """
+        for plugin in self._plugin_receivers:
+            hook = getattr(plugin, hook_name, None)
+            if not callable(hook):
+                continue
+            try:
+                hook()
+            except Exception as exc:
+                logger.warning(
+                    "Plugin %s.%s raised: %s",
+                    type(plugin).__name__, hook_name, exc,
+                )
+
     def _effective_hang_timeout(self) -> float:
         """Hang timeout for the current test.
 
@@ -272,6 +311,15 @@ class EmbeddedTestRunner(_BaseRunner):
         if per_test > 0:
             return float(per_test)
         return self.configure_hang_timeout()
+
+    # ------------------------------------------------------------------
+    # PIO lifecycle (setup / teardown)
+    # ------------------------------------------------------------------
+
+    def setup(self):
+        """PIO calls this once at the start of a test partition."""
+        super().setup()
+        self.on_partition_start()
 
     # ------------------------------------------------------------------
     # Line callback mode (PIO owns serial)
@@ -1148,13 +1196,17 @@ class EmbeddedTestRunner(_BaseRunner):
     # ------------------------------------------------------------------
 
     def teardown(self):
-        """Check for silent hang on teardown.
+        """Called by PIO once after the partition's test cycle finishes.
 
-        Only fires if our runner did not explicitly finish the suite.
-        This catches the case where PIO's serial reader timed out
-        (no output for 600s) without our runner seeing a completion
-        or crash — likely a device hang.
+        Forwards to plugin receivers via on_partition_complete(), then
+        performs the silent-hang check inherited from prior behavior.
         """
+        try:
+            self.on_partition_complete()
+        except Exception as exc:
+            logger.warning("on_partition_complete raised: %s", exc)
+
+        # Existing silent-hang detection
         if self._finished_by_runner:
             return
 
