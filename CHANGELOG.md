@@ -5,6 +5,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-04
+
 ### Added
 - **Receiver plugin API**: packages can declare a receiver class under
   the `embedded_test_runner.receivers` entry-point group and have it
