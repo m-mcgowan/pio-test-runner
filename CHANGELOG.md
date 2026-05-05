@@ -5,6 +5,20 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-04
+
+### Fixed
+- **Dependency declarations**: declare `embedded-bridge` explicitly in
+  both `pyproject.toml` (PEP 508 git URL) and `library.json`
+  (PlatformIO `dependencies` array). v0.3.0 left these implicit, which
+  worked for the in-tree pip-install consumers (note-cpp, firmware2)
+  because they install `embedded-bridge` from git themselves before
+  importing `etst`, but DOA for the canonical `lib_deps`-only path
+  documented in `examples/test_custom_runner.py`. After the fix, both
+  `pip install embedded-test-runner @ git+…` and PlatformIO
+  `lib_deps = …embedded-test-runner` resolve `embedded-bridge`
+  automatically.
+
 ## [0.3.0] — 2026-05-04
 
 ### Added

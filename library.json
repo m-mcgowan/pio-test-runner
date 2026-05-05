@@ -1,6 +1,6 @@
 {
     "name": "embedded-test-runner",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "Test orchestration for embedded devices",
     "keywords": "testing, embedded, serial, crash-detection",
     "frameworks": [
@@ -8,6 +8,12 @@
     ],
     "platforms": [
         "espressif32"
+    ],
+    "dependencies": [
+        {
+            "name": "embedded-bridge",
+            "version": "https://github.com/m-mcgowan/embedded-bridge.git"
+        }
     ],
     "build": {
         "srcDir": "src/etst",

@@ -17,7 +17,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-    "embedded-bridge",
+    "embedded-bridge @ git+https://github.com/m-mcgowan/embedded-bridge.git#subdirectory=python",
 ]
 
 [project.optional-dependencies]
