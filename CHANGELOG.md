@@ -16,6 +16,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
   implementations forward to plugin receivers that opt in. Subclasses
   overriding either hook should call `super()` to preserve plugin
   notification.
+- **Test environment variables via `ETST:ARGS` / `--env K=V`**: host
+  forwards `ETST_ENV_*` host env vars and `pio test -a --env K=V`
+  arguments to the firmware before each `RUN`. New `etst::env(key)` /
+  `etst::env_int(key, default)` lookups in `<etst/env.h>`, plus a
+  `require_env("KEY")` doctest decorator that skips a test when the
+  named env var is missing.
 
 ### Changed
 - **Renamed**: pio-test-runner → embedded-test-runner, pio_test_runner → etst,
@@ -26,6 +32,23 @@ Follows [Keep a Changelog](https://keepachangelog.com/) conventions.
 - **Listener renamed**: `PtrTestListener` → `EtstDoctestListener`.
 - **doctest_runner.h moved**: `<pio_test_runner/doctest_runner.h>` →
   `<etst/doctest/runner.h>`.
+
+### Fixed
+- **`open_serial` retry default restored**: `_open_serial` no longer
+  passes `retries=1`, which had overridden the 5-retry default and
+  turned transient sub-second port unavailability after USB-CDC
+  re-enumeration into a hard partition failure on back-to-back
+  `pio test` runs.
+- **PIO doctest parser integration**: forward blank lines to PIO's
+  `DoctestTestCaseParser` so it can commit accumulated `TEST CASE:`
+  header tokens; collapse parser-emitted subcase entries to
+  `TEST_CASE` granularity in `_ensure_test_results`. Together these
+  eliminate phantom empty-name cases and subcase-iteration
+  double-counting in PIO's outer summary.
+- **Example shim libdeps glob**: `examples/test_custom_runner.py`
+  and `tests/integration/test/test_custom_runner.py` now glob
+  `*/embedded-test-runner/src` (matched the post-rename
+  `library.json` name).
 
 ## [0.2.0] — 2026-04-09
 
