@@ -43,17 +43,28 @@ orchestration framework.
 - Transport: `protocol.h` / `protocol.py` — CRC, wire format
 - Lifecycle: `test_runner.h` — sleep/ready/done/memory markers
 - Infrastructure: serial port, crash detection, disconnect handling, timing
+- Configuration: `<etst/env.h>` host→firmware env var passing via `ETST:ARGS`,
+  typed lookups (`etst::env<T>`), `require_env` doctest decorator
+- Extensibility: receiver plugin API via the
+  `embedded_test_runner.receivers` setuptools entry-point group, plus
+  `on_partition_start()` / `on_partition_complete()` lifecycle hooks on
+  `EmbeddedTestRunner`
 
 **What's coupled** (doctest-specific):
 - `etst/doctest/runner.h` — monolith mixing orchestration with doctest internals
 - `runner.py` — filter syntax (`--tc`/`--ts`), base class, command format
-- `ready_run_protocol.py` — assumes suite/name/timeout from TEST:START
+- `ready_run_protocol.py` — assumes suite/name/timeout from CASE:START
 
 **What's PlatformIO-specific** (host side only):
 - `runner.py` inherits from PIO's `TestRunnerBase`
 - Serial port discovery via `SerialPortFinder`
 - Result reporting via PIO's `TestCase`/`TestStatus`
 - Config from `platformio.ini`
+
+**Partially clean** (per Phase 1.5):
+- `MemoryTracker` (in `embedded-bridge`) currently has inline ETST
+  protocol parsing. The plan is to move parsing to the runner and pass
+  plain values into the receiver.
 
 ---
 
@@ -412,5 +423,27 @@ needs the standalone CLI.
 
 - **`is_test_wake()`** → `is_continuation()` (multi-phase generalization)
 - **`--wake` flag** → `--continue` (not sleep-specific)
-- **Entry point**: investigate zero-config `main.cpp` (blocked by
-  DOCTEST_CONFIG_IMPLEMENT link conflict)
+- **Zero-config setup**: postinstall hook that auto-creates the
+  `test/test_custom_runner.py` shim (Strategy C in
+  `NOTES-shim-dx-2026-04-27.md`). Replaces the copy-this-file step.
+
+### Already Shipped (v0.3.x)
+
+What used to be Phase 2 / Phase 1 future work that has since landed:
+
+- **Receiver plugin API + lifecycle hooks** (v0.3.0). Was implicit in
+  the Phase 2 host abstraction; landed as `embedded_test_runner.receivers`
+  setuptools entry-point group + `on_partition_start/complete` virtuals.
+- **Test environment variables** (v0.3.0). The `ETST:ARGS` host→device
+  message + `<etst/env.h>` firmware lookups + `require_env` doctest
+  decorator. Not previously called out in the roadmap.
+- **Config struct** (v0.3.0). Replaced the weak-function customization
+  approach (`ptr_board_init` etc.) with `etst::config` /
+  `etst::doctest::config`. See "Entry Point / main.cpp (Done)" above.
+- **Package rename** (v0.3.0). `pio_test_runner` → `etst` (Python),
+  `pio-test-runner` → `embedded-test-runner` (project / library.json),
+  `<pio_test_runner/...>` → `<etst/...>` (include path), etc.
+  Anticipated in "Include Path Rename (Done)" above.
+- **Explicit dependency declarations** (v0.3.1). Both `pyproject.toml`
+  and `library.json` now pin `embedded-bridge` to its git URL; fresh
+  consumers no longer need to install it manually.
